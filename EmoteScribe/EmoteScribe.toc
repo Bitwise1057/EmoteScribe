@@ -1,0 +1,17 @@
+#------------------------------------------------------------------------------
+## Interface: 120001
+## Title: EmoteScribe
+## Version: 1a0
+## Notes: Splits long emotes and messages across all chat channels.
+## Author: VfX / Bitwise1057
+## SavedVariables: EmoteScribeSaved
+## IconTexture: Interface\AddOns\EmoteScribe\Resources\SmallLogo32
+#------------------------------------------------------------------------------
+
+## Category-enUS: Roleplay
+
+embeds.xml
+indicator.xml
+EmoteScribe.lua
+emoteprotection.lua
+options.lua
