@@ -27,8 +27,7 @@ This addon was largely inspired by Tammya's EmoteSplitter and uses some aspects 
 
 1. Go to the Releases tab on this repository
 2. Download the latest .zip file
-3. Extract the contents
-
+3. Extract the contents (You only need the nested EmoteScribe file, not EmoteScribe-main)
 4. Move the extracted folder to your WoW AddOns directory:
 
 `World of Warcraft/_retail_/Interface/AddOns/`
