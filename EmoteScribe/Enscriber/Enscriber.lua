@@ -492,6 +492,21 @@ function Me.QueueChat( msg, type, arg3, target )
                Me.sending_active = true
                Me.FireEvent( "SEND_START" )
             end
+            -- For channels 2/3 (GUILD/CLUB), the placeholder won't be
+            -- released by the deferred timer it waits for a server echo.
+            -- Set a timeout so the queue doesn't stall forever if the echo
+            -- never arrives.
+            if channel >= 2 then
+               Me.Timer_Start( "enscriber_placeholder_"..channel, "push",
+                  Me.CHAT_TIMEOUT, function()
+                     if Me.channels_busy[channel]
+                        and Me.channels_busy[channel]._editbox_placeholder then
+                        Me.DebugLog( "Placeholder timeout, channel=", channel )
+                        Me.channels_busy[channel] = nil
+                        Me.ChatQueueNext()
+                     end
+                  end)
+            end
          end
       end
       return
@@ -637,6 +652,7 @@ function Me.ChatDeath( channel )
    for i = 1, Me.NUM_CHANNELS do
       Me.channels_busy[i] = nil
       Me.Timer_Cancel( "enscriber_autoconfirm_"..i )
+      Me.Timer_Cancel( "enscriber_placeholder_"..i )
    end
 end
 
@@ -647,8 +663,9 @@ function Me.ChatConfirmed( channel, skip_event )
       Me.FireEvent( "SEND_CONFIRMED", Me.channels_busy[channel] )
    end
    Me.channels_busy[channel] = nil
-   Me.Timer_Cancel( "enscriber_channel_"..channel    )
+   Me.Timer_Cancel( "enscriber_channel_"..channel     )
    Me.Timer_Cancel( "enscriber_autoconfirm_"..channel )
+   Me.Timer_Cancel( "enscriber_placeholder_"..channel )
    if not Me.inside_chat_queue then
       Me.ChatQueueNext()
    end
@@ -886,8 +903,18 @@ if not Me.editbox_hooked then
          Me.editbox_deferred_commits = nil
 
          C_Timer.After( 0, function()
-            -- Release placeholder for queued types (SAY/EMOTE/GUILD etc.)
-            if channel and Me.channels_busy[channel]
+            -- Release placeholder for channel 1 (SAY/EMOTE/YELL/BNET).
+            -- These have an autoconfirm timer as a fallback, so releasing
+            -- the placeholder here is safe — the queue still waits for
+            -- confirmation before advancing.
+            --
+            -- For channels 2/3 (GUILD/OFFICER/CLUB), do NOT release here.
+            -- Those channels confirm via server echo events (CHAT_MSG_GUILD,
+            -- CLUB_MESSAGE_ADDED, etc.). Releasing early would dispatch
+            -- chunk[2] before the server confirms chunk[1], causing the
+            -- Club API to deliver them out of order.
+            if channel and channel == 1
+                       and Me.channels_busy[channel]
                        and Me.channels_busy[channel]._editbox_placeholder then
                Me.channels_busy[channel] = nil
                Me.ChatQueueNext()
