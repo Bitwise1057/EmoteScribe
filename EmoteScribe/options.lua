@@ -1,137 +1,269 @@
 -------------------------------------------------------------------------------
 -- Emote Scribe -- Options
+-- by VfX / Bitwise1057
 -------------------------------------------------------------------------------
 local _, Me = ...
-local AceConfig       = LibStub("AceConfig-3.0")
-local AceConfigDialog = LibStub("AceConfigDialog-3.0")
-local Enscriber       = LibEnscriber
+local Enscriber = LibEnscriber
 
-local DB_DEFAULTS = {
-	global = {
-		premark         = "»";
-		postmark        = "»";
-		hidefailed      = true;
-		showsending     = true;
-		emoteprotection = true;
-	};
-	char = {
-		undo_history = {};
-	};
+local DEFAULTS = {
+	premark         = "»";
+	postmark        = "»";
+	hidefailed      = true;
+	showsending     = true;
+	emoteprotection = true;
 }
 
-local OPTIONS_TABLE = {
-	type = "group";
-	name = "Emote Scribe";
-	args = {
-		desc = {
-			order = 10;
-			name  = "Version: " .. (C_AddOns.GetAddOnMetadata("EmoteScribe", "Version") or "?")
-			       .. "|nby VfX / Bitwise1057";
-			type  = "description";
-		};
-		postmark = {
-			name  = "Postfix Mark";
-			desc  = "Text appended to a message chunk to indicate it continues in the next. Leave blank to disable.";
-			order = 20;
-			type  = "input";
-			set   = function( info, val )
-				Me.db.global.postmark = val:sub( 1, 10 )
-				Me.Options_Apply()
-			end;
-			get   = function( info ) return Me.db.global.postmark end;
-		};
-		desc1 = { name=""; type="description"; order=21; };
-		premark = {
-			name  = "Prefix Mark";
-			desc  = "Text prepended to a message chunk to indicate it continues from the previous. Leave blank to disable.";
-			order = 22;
-			type  = "input";
-			set   = function( info, val )
-				Me.db.global.premark = val:sub( 1, 10 )
-				Me.Options_Apply()
-			end;
-			get   = function( info ) return Me.db.global.premark end;
-		};
-		desc2 = { name=""; type="description"; order=23; };
-		resetmarks = {
-			name  = "Reset Marks to Default";
-			desc  = "Resets both the Prefix and Postfix marks back to the default » character.";
-			order = 24;
-			type  = "execute";
-			func  = function()
-				Me.db.global.premark  = "»"
-				Me.db.global.postmark = "»"
-				Me.Options_Apply()
-			end;
-		};
-		desc3 = { name=""; type="description"; order=25; };
-		hidefailed = {
-			name  = "Hide Failure Messages";
-			desc  = "Suppress the system message shown when your chat is throttled.";
-			order = 40;
-			type  = "toggle";
-			width = "full";
-			set   = function( info, val )
-				Me.db.global.hidefailed = val
-				Me.Options_Apply()
-			end;
-			get   = function( info ) return Me.db.global.hidefailed end;
-		};
-		showsending = {
-			name  = "Show Sending Indicator";
-			desc  = "Show a small indicator at the bottom-left of the screen while messages are being sent.";
-			order = 50;
-			type  = "toggle";
-			width = "full";
-			set   = function( info, val ) Me.db.global.showsending = val end;
-			get   = function( info ) return Me.db.global.showsending end;
-		};
-		emoteprotection = {
-			name  = "Undo / Emote Protection";
-			desc  = "Adds |cffffff00Ctrl-Z|r and |cffffff00Ctrl-Y|r to chat editboxes for undo/redo. Useful for recovering long emotes lost to accidental closes or disconnects.";
-			order = 60;
-			type  = "toggle";
-			width = "full";
-			set   = function( info, val )
-				Me.db.global.emoteprotection = val
-				Me.EmoteProtection.OptionsChanged()
-			end;
-			get   = function( info ) return Me.db.global.emoteprotection end;
-		};
-	};
-}
+-------------------------------------------------------------------------------
+-- Lightweight saved-variable handler replacing AceDB.
+-- Reads EmoteScribeSaved.global on load, writes back on change.
+-- Falls back to DEFAULTS for any missing key.
+-------------------------------------------------------------------------------
+local function DB_Get( key )
+	return EmoteScribeSaved.global[key]
+end
+
+local function DB_Set( key, val )
+	EmoteScribeSaved.global[key] = val
+end
 
 function Me.Options_Init()
-	Me.db = LibStub("AceDB-3.0"):New("EmoteScribeSaved", DB_DEFAULTS, true)
-	AceConfig:RegisterOptionsTable("EmoteScribe", OPTIONS_TABLE)
-
-	-- Wrap RegisterCanvasLayoutCategory briefly to capture the category object,
-	-- which is required by Settings.OpenToCategory in 12.0+.
-	if Settings and Settings.RegisterCanvasLayoutCategory then
-		local original = Settings.RegisterCanvasLayoutCategory
-		Settings.RegisterCanvasLayoutCategory = function( frame, name, ... )
-			local cat = original( frame, name, ... )
-			if name == "Emote Scribe" then
-				Me.options_category = cat
-			end
-			return cat
+	-- Initialise saved variable table if missing or incomplete.
+	if type(EmoteScribeSaved) ~= "table" then
+		EmoteScribeSaved = {}
+	end
+	if type(EmoteScribeSaved.global) ~= "table" then
+		EmoteScribeSaved.global = {}
+	end
+	if type(EmoteScribeSaved.char) ~= "table" then
+		EmoteScribeSaved.char = {}
+	end
+	if type(EmoteScribeSaved.char.undo_history) ~= "table" then
+		EmoteScribeSaved.char.undo_history = {}
+	end
+	for k, v in pairs(DEFAULTS) do
+		if EmoteScribeSaved.global[k] == nil then
+			EmoteScribeSaved.global[k] = v
 		end
-		AceConfigDialog:AddToBlizOptions("EmoteScribe", "Emote Scribe")
-		Settings.RegisterCanvasLayoutCategory = original
-	else
-		AceConfigDialog:AddToBlizOptions("EmoteScribe", "Emote Scribe")
 	end
 
+	-- Provide Me.db shim so emoteprotection.lua can keep using Me.db.char
+	-- and Me.db.global without changes.
+	Me.db = {
+		global = EmoteScribeSaved.global;
+		char   = EmoteScribeSaved.char;
+	}
+
+	Me.Options_Build()
 	Me.Options_Apply()
 end
 
 function Me.Options_Apply()
-	Enscriber.HideFailureMessages( Me.db.global.hidefailed )
-	Enscriber.SetSplitmarks( Me.db.global.premark, Me.db.global.postmark, true )
+	Enscriber.HideFailureMessages( DB_Get("hidefailed") )
+	Enscriber.SetSplitmarks( DB_Get("premark"), DB_Get("postmark"), true )
+end
+
+-------------------------------------------------------------------------------
+-- Native settings window
+-------------------------------------------------------------------------------
+local WINDOW_W = 380
+local WINDOW_H = 310
+
+local function MakeLabel( parent, text, x, y, width )
+	local f = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	f:SetPoint("TOPLEFT", x, y)
+	f:SetWidth(width or 200)
+	f:SetJustifyH("LEFT")
+	f:SetText(text)
+	return f
+end
+
+local function MakeCheckbox( parent, label, tooltip, x, y, getVal, setVal )
+	local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+	cb:SetPoint("TOPLEFT", x, y)
+	cb:SetSize(24, 24)
+	cb:SetChecked( getVal() )
+
+	local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	lbl:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+	lbl:SetText(label)
+
+	if tooltip then
+		cb:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(tooltip, nil, nil, nil, nil, true)
+			GameTooltip:Show()
+		end)
+		cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+
+	cb:SetScript("OnClick", function(self)
+		setVal( self:GetChecked() and true or false )
+	end)
+
+	return cb
+end
+
+local function MakeInput( parent, x, y, width, maxlen, getVal, setVal )
+	local bg = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+	bg:SetPoint("TOPLEFT", x, y)
+	bg:SetSize(width, 22)
+	bg:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground";
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border";
+		edgeSize = 8;
+		insets   = { left=3, right=3, top=3, bottom=3 };
+	})
+	bg:SetBackdropColor(0, 0, 0, 0.5)
+	bg:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+
+	local eb = CreateFrame("EditBox", nil, bg)
+	eb:SetPoint("TOPLEFT", 5, -3)
+	eb:SetPoint("BOTTOMRIGHT", -5, 3)
+	eb:SetFontObject(ChatFontNormal)
+	eb:SetMaxLetters(maxlen or 10)
+	eb:SetAutoFocus(false)
+	eb:SetText( getVal() )
+	eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	eb:SetScript("OnEnterPressed", function(self)
+		setVal( self:GetText():sub(1, maxlen or 10) )
+		self:ClearFocus()
+	end)
+	eb:SetScript("OnEditFocusLost", function(self)
+		setVal( self:GetText():sub(1, maxlen or 10) )
+	end)
+
+	return eb, bg
+end
+
+local function MakeButton( parent, label, x, y, width, onClick )
+	local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+	btn:SetPoint("TOPLEFT", x, y)
+	btn:SetSize(width or 160, 22)
+	btn:SetText(label)
+	btn:SetScript("OnClick", onClick)
+	return btn
+end
+
+function Me.Options_Build()
+	if Me.options_frame then return end
+
+	local f = CreateFrame("Frame", "EmoteScribeOptions", UIParent, "BackdropTemplate")
+	f:SetSize(WINDOW_W, WINDOW_H)
+	f:SetPoint("CENTER")
+	f:SetFrameStrata("DIALOG")
+	f:SetMovable(true)
+	f:EnableMouse(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop",  f.StopMovingOrSizing)
+	f:SetBackdrop({
+		bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background";
+		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border";
+		edgeSize = 32;
+		insets   = { left=11, right=11, top=11, bottom=11 };
+	})
+	f:Hide()
+
+	-- Title bar
+	local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+	title:SetPoint("TOP", 0, -16)
+	title:SetText("Emote Scribe")
+
+	local ver = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	ver:SetPoint("TOP", 0, -30)
+	ver:SetText("v" .. (C_AddOns.GetAddOnMetadata("EmoteScribe", "Version") or "?") .. "  |  VfX / Bitwise1057")
+
+	-- Divider
+	local div = f:CreateTexture(nil, "OVERLAY")
+	div:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
+	div:SetPoint("TOPLEFT", 14, -44)
+	div:SetPoint("TOPRIGHT", -14, -44)
+	div:SetHeight(1)
+	div:SetVertexColor(0.4, 0.4, 0.4, 0.6)
+
+	local PAD_L = 20
+	local y     = -54
+
+	-- Split markers section
+	MakeLabel(f, "Split Markers", PAD_L, y, 200)
+	y = y - 18
+
+	MakeLabel(f, "Postfix", PAD_L, y, 60)
+	local postEB = MakeInput(f, PAD_L + 56, y + 2, 80, 10,
+		function() return DB_Get("postmark") end,
+		function(v)
+			DB_Set("postmark", v)
+			Me.Options_Apply()
+		end)
+
+	MakeLabel(f, "Prefix", PAD_L + 158, y, 60)
+	local preEB = MakeInput(f, PAD_L + 214, y + 2, 80, 10,
+		function() return DB_Get("premark") end,
+		function(v)
+			DB_Set("premark", v)
+			Me.Options_Apply()
+		end)
+
+	y = y - 30
+
+	MakeButton(f, "Reset Marks to Default", PAD_L, y, 180, function()
+		DB_Set("premark",  "»")
+		DB_Set("postmark", "»")
+		preEB:SetText("»")
+		postEB:SetText("»")
+		Me.Options_Apply()
+	end)
+
+	y = y - 36
+
+	-- Divider
+	local div2 = f:CreateTexture(nil, "OVERLAY")
+	div2:SetTexture("Interface\\Tooltips\\UI-Tooltip-Border")
+	div2:SetPoint("TOPLEFT", 14, y + 8)
+	div2:SetPoint("TOPRIGHT", -14, y + 8)
+	div2:SetHeight(1)
+	div2:SetVertexColor(0.4, 0.4, 0.4, 0.6)
+
+	-- Checkboxes
+	MakeCheckbox(f, "Hide Failure Messages",
+		"Suppress the system message shown when your chat is throttled.",
+		PAD_L, y - 4,
+		function() return DB_Get("hidefailed") end,
+		function(v)
+			DB_Set("hidefailed", v)
+			Me.Options_Apply()
+		end)
+	y = y - 28
+
+	MakeCheckbox(f, "Show Sending Indicator",
+		"Show a small indicator at the bottom-left while messages are being sent.",
+		PAD_L, y,
+		function() return DB_Get("showsending") end,
+		function(v) DB_Set("showsending", v) end)
+	y = y - 28
+
+	MakeCheckbox(f, "Undo / Emote Protection  (Ctrl-Z / Ctrl-Y)",
+		"Adds Ctrl-Z and Ctrl-Y undo/redo to chat editboxes. Useful for recovering long emotes after accidental closes or disconnects.",
+		PAD_L, y,
+		function() return DB_Get("emoteprotection") end,
+		function(v)
+			DB_Set("emoteprotection", v)
+			Me.EmoteProtection.OptionsChanged()
+		end)
+
+	-- Close button
+	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", -4, -4)
+
+	tinsert(UISpecialFrames, "EmoteScribeOptions")
+	Me.options_frame = f
 end
 
 function Me.Options_Show()
-	if Me.options_category then
-		Settings.OpenToCategory( Me.options_category.ID )
+	if not Me.options_frame then return end
+	if Me.options_frame:IsShown() then
+		Me.options_frame:Hide()
+	else
+		Me.options_frame:Show()
 	end
 end
