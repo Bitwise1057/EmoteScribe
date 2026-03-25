@@ -7,7 +7,7 @@
 
 EmoteScribe is a lightweight World of Warcraft addon that enhances chat readability by intelligently splitting and formatting emotes into clean, digestible segments.
 
-Built with roleplayers and heavy emote users in mind, it keeps chat immersive without turning it into a wall of text.
+Built with roleplayers and heavy emote users in mind, it keeps chat immersive without requiring you to manually break every message apart.
 
 This addon was largely inspired by Tammya's EmoteSplitter and uses some aspects for familiarity.
 
