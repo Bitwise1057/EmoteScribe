@@ -10,6 +10,7 @@ local DEFAULTS = {
 	postmark        = "»";
 	hidefailed      = true;
 	showsending     = true;
+	showlockdown    = true;
 	emoteprotection = true;
 }
 
@@ -66,7 +67,7 @@ end
 -- Native settings window
 -------------------------------------------------------------------------------
 local WINDOW_W = 380
-local WINDOW_H = 310
+local WINDOW_H = 338
 
 local function MakeLabel( parent, text, x, y, width )
 	local f = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -240,6 +241,13 @@ function Me.Options_Build()
 		PAD_L, y,
 		function() return DB_Get("showsending") end,
 		function(v) DB_Set("showsending", v) end)
+	y = y - 28
+
+	MakeCheckbox(f, "Show Lockdown Notifications",
+		"Show chat messages and an indicator when encounter lockdown pauses message splitting.",
+		PAD_L, y,
+		function() return DB_Get("showlockdown") end,
+		function(v) DB_Set("showlockdown", v) end)
 	y = y - 28
 
 	MakeCheckbox(f, "Undo / Emote Protection  (Ctrl-Z / Ctrl-Y)",
