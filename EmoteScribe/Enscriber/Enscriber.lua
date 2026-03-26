@@ -6,7 +6,7 @@
 -- that verifies delivery and retries on server throttle errors.
 -------------------------------------------------------------------------------
 
-local VERSION = 16
+local VERSION = 1
 
 if IsLoggedIn() then
    error( "Enscriber can't be loaded on demand!" )
@@ -127,6 +127,7 @@ function Me.OnLogin()
    Me.frame:RegisterEvent( "ADDON_ACTION_BLOCKED"                )
    Me.frame:RegisterEvent( "ENCOUNTER_START"                     )
    Me.frame:RegisterEvent( "ENCOUNTER_END"                       )
+   Me.frame:RegisterEvent( "PLAYER_LEAVING_WORLD"                )
 
    local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter
                      or ChatFrame_AddMessageEventFilter
@@ -218,6 +219,8 @@ function Me.OnGameEvent( frame, event, ... )
    elseif event == "ENCOUNTER_START" then
       Me.FireEvent( "ENCOUNTER_LOCKDOWN_START" )
    elseif event == "ENCOUNTER_END" then
+      Me.FireEvent( "ENCOUNTER_LOCKDOWN_END" )
+   elseif event == "PLAYER_LEAVING_WORLD" then
       Me.FireEvent( "ENCOUNTER_LOCKDOWN_END" )
    elseif event == "PLAYER_LOGIN" then
       Me.OnLogin()
@@ -905,7 +908,7 @@ if not Me.editbox_hooked then
          C_Timer.After( 0, function()
             -- Release placeholder for channel 1 (SAY/EMOTE/YELL/BNET).
             -- These have an autoconfirm timer as a fallback, so releasing
-            -- the placeholder here is safe — the queue still waits for
+            -- the placeholder here is safe the queue still waits for
             -- confirmation before advancing.
             --
             -- For channels 2/3 (GUILD/OFFICER/CLUB), do NOT release here.
