@@ -37,6 +37,35 @@ SlashCmdList["EMOTESCRIBE"] = function( msg )
 		print( "Max message length set to " .. v .. "." )
 		return
 	end
+
+	--[[ lockinfo — diagnostic command, uncomment to re-enable.
+	if arg1:lower() == "lockinfo" then
+		local combat = InCombatLockdown()
+		local msgLock = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
+		               and C_ChatInfo.InChatMessagingLockdown() or false
+		local isLocked = Enscriber.Internal.IsLocked()
+
+		local eb = LAST_ACTIVE_CHAT_EDIT_BOX or ACTIVE_CHAT_EDIT_BOX
+		local maxBytes, maxLetters, visByteLimit = "N/A", "N/A", "N/A"
+		if eb then
+			maxBytes    = eb:GetMaxBytes()
+			maxLetters  = eb:GetMaxLetters()
+			if eb.GetVisibleTextByteLimit then
+				visByteLimit = eb:GetVisibleTextByteLimit()
+			end
+		end
+
+		print( "|cffff9900<EmoteScribe>|r Lock diagnostics:" )
+		print( "  InCombatLockdown: " .. tostring(combat) )
+		print( "  InChatMessagingLockdown: " .. tostring(msgLock) )
+		print( "  IsLocked (composite): " .. tostring(isLocked) )
+		print( "  Editbox MaxBytes: " .. tostring(maxBytes)
+		       .. "  MaxLetters: " .. tostring(maxLetters)
+		       .. "  VisByteLimit: " .. tostring(visByteLimit) )
+		print( "  (0 = unlimited, 255 = locked)" )
+		return
+	end
+	--]]
 end
 
 function Me:OnEnable()
@@ -102,6 +131,19 @@ function Me:OnEnable()
 	f:EnableMouse( false )
 	Me.sending_text = EmoteScribeSending
 
+	-- Lockdown indicator — sits just above the sending indicator.
+	local lf = CreateFrame( "Frame", "EmoteScribeLockdown", UIParent )
+	lf:SetPoint( "BOTTOMLEFT", 3, 3 )
+	lf:SetSize( 250, 20 )
+	lf:EnableMouse( false )
+	lf:SetFrameStrata( "DIALOG" )
+	lf:Hide()
+	lf.text = lf:CreateFontString( nil, "ARTWORK", "EmoteScribeSendingFont" )
+	lf.text:SetPoint( "BOTTOMLEFT" )
+	lf.text:SetTextColor( 1, 0.6, 0, 1 )
+	lf.text:SetText( "Lockdown: Splitting Paused" )
+	Me.lockdown_indicator = lf
+
 	Me.EmoteProtection.Init()
 end
 
@@ -162,12 +204,25 @@ end
 -- 12.0: During boss/M+/PvP lockdown Enscriber steps aside entirely.
 -- Messages over 255 chars are server-truncated, same as without the addon.
 function Me.Enscriber_ENCOUNTER_LOCKDOWN_START()
-	print( "|cffff9900<EmoteScribe>|r Message splitting paused"
-	       .. " (encounter lockdown). 255 character limit applies." )
+	Me.in_lockdown = true
+	if Me.db.global.showlockdown then
+		print( "|cffff9900<EmoteScribe>|r Message splitting paused"
+		       .. " (encounter lockdown). 255 character limit applies." )
+	end
+	if Me.lockdown_indicator and Me.db.global.showlockdown then
+		Me.lockdown_indicator:Show()
+	end
 end
 
 function Me.Enscriber_ENCOUNTER_LOCKDOWN_END()
-	print( "|cff00ff00<EmoteScribe>|r Message splitting resumed." )
+	if not Me.in_lockdown then return end
+	Me.in_lockdown = false
+	if Me.db.global.showlockdown then
+		print( "|cff00ff00<EmoteScribe>|r Message splitting resumed." )
+	end
+	if Me.lockdown_indicator then
+		Me.lockdown_indicator:Hide()
+	end
 end
 
 -- Unlock the Communities chatbox character limit.
