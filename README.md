@@ -34,12 +34,17 @@ This addon was largely inspired by Tammya's EmoteSplitter and uses some aspects 
 
 5. Verify folder structure:
 
-AddOns/EmoteScribe/
-AddOns/EmoteScribe/EmoteScribe.toc
+`AddOns/EmoteScribe/`
+`AddOns/EmoteScribe/EmoteScribe.toc`
 
 6. Launch World of Warcraft
 7. At the character select screen, click AddOns
 8. Enable EmoteScribe
+---
+### CurseForge Installation
+
+1. Visit the official CurseForge page for the addon. (https://www.curseforge.com/wow/addons/emotescribe)
+2. Download and install using CurseForge, WoWUp, or your preferred addon manager.
 
 ---
 
