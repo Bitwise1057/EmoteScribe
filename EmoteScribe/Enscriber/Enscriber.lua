@@ -197,7 +197,7 @@ end
 function Me.OnGameEvent( frame, event, ... )
    if event == "CHAT_MSG_SAY" or event == "CHAT_MSG_EMOTE"
                                              or event == "CHAT_MSG_YELL" then
-      Me.TryConfirm( event:sub( 10 ) )
+      Me.TryConfirm( event:sub( 10 ), select( 12, ... ) )
    elseif event == "CLUB_MESSAGE_ADDED" then
       Me.OnClubMessageAdded( event, ... )
    elseif event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_OFFICER" then
@@ -625,17 +625,6 @@ function Me.OnChatSent( msg )
       Me.Timer_Cancel( "enscriber_channel_"..channel )
       return
    end
-
-   if channel == 1 then
-      local delay = math.min( Me.GetLatency() * 2 + 0.5, 3.0 )
-      Me.Timer_Start( "enscriber_autoconfirm_"..channel, "push",
-                      delay, function()
-         if Me.channels_busy[channel] then
-            Me.RemoveFromTable( Me.chat_queue, Me.channels_busy[channel] )
-            Me.ChatConfirmed( channel )
-         end
-      end)
-   end
 end
 
 function Me.ChatDeath( channel )
@@ -654,7 +643,6 @@ function Me.ChatDeath( channel )
    Me.sending_active = false
    for i = 1, Me.NUM_CHANNELS do
       Me.channels_busy[i] = nil
-      Me.Timer_Cancel( "enscriber_autoconfirm_"..i )
       Me.Timer_Cancel( "enscriber_placeholder_"..i )
    end
 end
@@ -667,7 +655,6 @@ function Me.ChatConfirmed( channel, skip_event )
    end
    Me.channels_busy[channel] = nil
    Me.Timer_Cancel( "enscriber_channel_"..channel     )
-   Me.Timer_Cancel( "enscriber_autoconfirm_"..channel )
    Me.Timer_Cancel( "enscriber_placeholder_"..channel )
    if not Me.inside_chat_queue then
       Me.ChatQueueNext()
@@ -705,13 +692,14 @@ local function RemoveFromTable( target, value )
 end
 Me.RemoveFromTable = RemoveFromTable
 
--- 12.0: CHAT_MSG_SAY/EMOTE/YELL sender values arrive tainted and cannot be
--- compared against secure strings. We confirm on type match alone; the
--- auto-confirm timer handles cases where the echo never arrives.
-function Me.TryConfirm( kind )
+-- Confirm a queued message by matching the chat echo's type and sender GUID.
+-- Pure echo-wait model: no speculative timers. The 10-second death timer is
+-- the only safety net if an echo never arrives.
+function Me.TryConfirm( kind, guid )
    local channel = QUEUED_TYPES[kind]
    if not channel then return end
-   if Me.channels_busy[channel] and kind == Me.channels_busy[channel].type then
+   if Me.channels_busy[channel] and kind == Me.channels_busy[channel].type
+                                          and guid == Me.PLAYER_GUID then
       RemoveFromTable( Me.chat_queue, Me.channels_busy[channel] )
       Me.ChatConfirmed( channel )
    end
@@ -907,9 +895,10 @@ if not Me.editbox_hooked then
 
          C_Timer.After( 0, function()
             -- Release placeholder for channel 1 (SAY/EMOTE/YELL/BNET).
-            -- These have an autoconfirm timer as a fallback, so releasing
-            -- the placeholder here is safe the queue still waits for
-            -- confirmation before advancing.
+            -- Channel 1 uses the continue-prompt system for chunk[2+],
+            -- which serialises dispatch at human speed via keypresses.
+            -- Releasing the placeholder here allows the queue to advance
+            -- once the user presses Enter.
             --
             -- For channels 2/3 (GUILD/OFFICER/CLUB), do NOT release here.
             -- Those channels confirm via server echo events (CHAT_MSG_GUILD,
