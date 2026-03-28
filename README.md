@@ -35,6 +35,7 @@ This addon was largely inspired by Tammya's EmoteSplitter and uses some aspects 
 5. Verify folder structure:
 
 `AddOns/EmoteScribe/`
+
 `AddOns/EmoteScribe/EmoteScribe.toc`
 
 6. Launch World of Warcraft
