@@ -52,10 +52,12 @@ This addon was largely inspired by Tammya's EmoteSplitter and uses some aspects 
 ## Common Installation Mistakes
 
 - Nested folders:
-  Incorrect:
-  AddOns/EmoteScribe-1.0/EmoteScribe/
-  Correct:
-  AddOns/EmoteScribe/
+  
+Incorrect:
+AddOns/EmoteScribe-1.0/EmoteScribe/
+
+Correct:
+AddOns/EmoteScribe/
 
 - Not extracting the .zip file
 - Installing in the wrong client folder (_classic_ vs _retail_)
