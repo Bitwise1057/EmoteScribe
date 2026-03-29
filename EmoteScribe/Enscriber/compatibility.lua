@@ -44,7 +44,7 @@ StaticPopupDialogs["EMOTESCRIBE_EMOTESPLITTER_CONFLICT"] = {
 
 function Me.EmoteSplitterCompatibility()
 	if Me.emotesplitter_conflict_ignored then return end
-	if not LibGopher then return end
+	if not C_AddOns.IsAddOnLoaded( "EmoteSplitter" ) then return end
 	StaticPopup_Show( "EMOTESCRIBE_EMOTESPLITTER_CONFLICT" )
 end
 
