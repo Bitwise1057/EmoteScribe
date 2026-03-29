@@ -7,6 +7,7 @@ if not Me.load then return end
 -- Called one frame after PLAYER_LOGIN so other addons are initialised.
 function Me.AddCompatibilityLayers()
 	Me.UCMCompatibility()
+	Me.EmoteSplitterCompatibility()
 	-- Me.MisspelledCompatibility()
 end
 
@@ -18,6 +19,33 @@ function Me.UCMCompatibility()
 		Me.compatibility_ucm = true
 		UCM.core:Unhook( "SendChatMessage" )
 	end
+end
+
+-- EmoteSplitter: warn the user and offer to disable it. The two addons hook
+-- the same chat dispatch path and will conflict, causing duplicate or dropped
+-- messages. Detection via LibGopher, the internal library EmoteSplitter exposes.
+StaticPopupDialogs["EMOTESCRIBE_EMOTESPLITTER_CONFLICT"] = {
+	text        = "|cffff9900EmoteScribe|r has detected that |cffff4400EmoteSplitter|r"
+	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
+	              .. " conflict with each other.\n\nPlease disable EmoteSplitter.",
+	button1     = "Disable & Reload",
+	button2     = "Ignore",
+	OnAccept    = function()
+		C_AddOns.DisableAddOn( "EmoteSplitter" )
+		ReloadUI()
+	end,
+	OnCancel    = function()
+		Me.emotesplitter_conflict_ignored = true
+	end,
+	timeout     = 0,
+	whileDead   = true,
+	hideOnEscape = true,
+}
+
+function Me.EmoteSplitterCompatibility()
+	if Me.emotesplitter_conflict_ignored then return end
+	if not LibGopher then return end
+	StaticPopup_Show( "EMOTESCRIBE_EMOTESPLITTER_CONFLICT" )
 end
 
 --[[ Misspelled: unhook its SendChatMessage and run its highlight removal via
