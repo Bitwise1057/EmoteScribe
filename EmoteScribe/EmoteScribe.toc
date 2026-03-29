@@ -1,7 +1,7 @@
 #------------------------------------------------------------------------------
 ## Interface: 120001
 ## Title: EmoteScribe
-## Version: 1a2b
+## Version: 1.1.0
 ## Notes: Splits long emotes and messages across all chat channels.
 ## Author: VfX / Bitwise1057
 ## SavedVariables: EmoteScribeSaved
