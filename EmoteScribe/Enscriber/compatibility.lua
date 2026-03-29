@@ -25,7 +25,7 @@ end
 -- the same chat dispatch path and will conflict, causing duplicate or dropped
 -- messages. Detection via LibGopher, the internal library EmoteSplitter exposes.
 StaticPopupDialogs["EMOTESCRIBE_EMOTESPLITTER_CONFLICT"] = {
-	text        = "|cffff9900EmoteScribe|r has detected that |cffff4400EmoteSplitter|r"
+	text        = "|cff00a9ecEmoteScribe|r has detected that |cffff4400EmoteSplitter|r"
 	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
 	              .. " conflict with each other.\n\nPlease disable EmoteSplitter.",
 	button1     = "Disable & Reload",
