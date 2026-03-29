@@ -68,12 +68,15 @@ local function TryDispatchMessage( msg )
 		SafeCall( C_Club.EditMessage, msg.arg3, msg.target, msg.cmid, msg.msg )
 	else
 		-- Standard SendChatMessage types. Hardware event required for
-		-- SAY/YELL/EMOTE/CHANNEL without a keystroke trigger.
+		-- SAY/YELL/CHANNEL without a keystroke trigger.
+		-- EMOTE is intentionally excluded: it does not enforce the hardware
+		-- event requirement outside of encounter lockdown. The IsLocked() guard
+		-- in the editbox hook ensures no chunks enter the queue during boss/M+
+		-- fights, so timer-dispatched EMOTE chunks are safe without a prompt.
 		if not hardware then
 			if msg.type == "CHANNEL"
 			   or msg.type == "SAY"
-			   or msg.type == "YELL"
-			   or msg.type == "EMOTE" then
+			   or msg.type == "YELL" then
 				return "PROMPT"
 			end
 		end
