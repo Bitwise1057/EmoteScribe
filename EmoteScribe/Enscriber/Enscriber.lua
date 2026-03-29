@@ -471,46 +471,29 @@ function Me.QueueChat( msg, type, arg3, target )
 
    -- During editbox pre-send interception, the first chunk is captured here
    -- and delivered by setting the editbox text instead of being queued.
-   -- We also mark channels_busy so the queue waits for chunk[1] to be
-   -- confirmed before dispatching chunk[2], preserving send order.
+   -- We set a gate flag so ChatQueueNext won't dispatch chunk[2] until
+   -- the server echo for chunk[1] arrives.
    if Me.capturing_first_chunk and Me.editbox_first_chunk == nil then
       Me.editbox_first_chunk    = msg
       Me.capturing_first_chunk  = false
-      -- Only block the queue if the message splits into 2+ chunks.
+      -- Only gate the queue if the message splits into 2+ chunks.
       -- Single-chunk messages don't need ordering protection.
-      if Me.editbox_needs_placeholder then
-         local channel = QUEUED_TYPES[type]
-         if channel and not Me.channels_busy[channel] then
-            Me.channels_busy[channel] = {
-               msg    = msg;
-               type   = type;
-               arg3   = arg3;
-               target = target;
-               id     = Me.message_id;
-               prio   = 1;
-               _editbox_placeholder = true;
-            }
-            Me.message_id = Me.message_id + 1
-            if not Me.sending_active then
-               Me.sending_active = true
-               Me.FireEvent( "SEND_START" )
-            end
-            -- For channels 2/3 (GUILD/CLUB), the placeholder won't be
-            -- released by the deferred timer it waits for a server echo.
-            -- Set a timeout so the queue doesn't stall forever if the echo
-            -- never arrives.
-            if channel >= 2 then
-               Me.Timer_Start( "enscriber_placeholder_"..channel, "push",
-                  Me.CHAT_TIMEOUT, function()
-                     if Me.channels_busy[channel]
-                        and Me.channels_busy[channel]._editbox_placeholder then
-                        Me.DebugLog( "Placeholder timeout, channel=", channel )
-                        Me.channels_busy[channel] = nil
-                        Me.ChatQueueNext()
-                     end
-                  end)
-            end
+      if Me.editbox_needs_split then
+         Me.waiting_for_first_chunk = true
+         if not Me.sending_active then
+            Me.sending_active = true
+            Me.FireEvent( "SEND_START" )
          end
+         -- Safety timeout — if the echo never arrives, clear the gate
+         -- so the queue doesn't stall forever.
+         Me.Timer_Start( "enscriber_first_chunk_timeout", "push",
+            Me.CHAT_TIMEOUT, function()
+               if Me.waiting_for_first_chunk then
+                  Me.DebugLog( "First chunk echo timeout - releasing gate." )
+                  Me.waiting_for_first_chunk = false
+                  Me.ChatQueueNext()
+               end
+            end)
       end
       return
    end
@@ -569,6 +552,9 @@ end
 -------------------------------------------------------------------------------
 -- Queue dispatcher. Sends queued messages when their channel is free.
 function Me.ChatQueueNext()
+   -- Don't dispatch until the server echo for chunk[1] has arrived.
+   if Me.waiting_for_first_chunk then return end
+
    if #Me.chat_queue == 0 then
       if not Me.AnyChannelsBusy() and Me.sending_active then
          Me.FireEvent( "SEND_DONE" )
@@ -614,7 +600,6 @@ end
 function Me.OnChatSent( msg )
    local channel = QUEUED_TYPES[ msg.type ]
    if not channel then return end
-   if msg._editbox_placeholder then return end
 
    Me.Timer_Start( "enscriber_channel_"..channel, "push",
                           Me.CHAT_TIMEOUT, Me.ChatDeath, channel )
@@ -641,9 +626,10 @@ function Me.ChatDeath( channel )
    end
    wipe( Me.chat_queue )
    Me.sending_active = false
+   Me.waiting_for_first_chunk = false
+   Me.Timer_Cancel( "enscriber_first_chunk_timeout" )
    for i = 1, Me.NUM_CHANNELS do
       Me.channels_busy[i] = nil
-      Me.Timer_Cancel( "enscriber_placeholder_"..i )
    end
 end
 
@@ -654,8 +640,7 @@ function Me.ChatConfirmed( channel, skip_event )
       Me.FireEvent( "SEND_CONFIRMED", Me.channels_busy[channel] )
    end
    Me.channels_busy[channel] = nil
-   Me.Timer_Cancel( "enscriber_channel_"..channel     )
-   Me.Timer_Cancel( "enscriber_placeholder_"..channel )
+   Me.Timer_Cancel( "enscriber_channel_"..channel )
    if not Me.inside_chat_queue then
       Me.ChatQueueNext()
    end
@@ -698,6 +683,18 @@ Me.RemoveFromTable = RemoveFromTable
 function Me.TryConfirm( kind, guid )
    local channel = QUEUED_TYPES[kind]
    if not channel then return end
+
+   -- If we're waiting for chunk[1]'s echo, this is it. Clear the gate
+   -- and let the queue start dispatching chunk[2+].
+   if Me.waiting_for_first_chunk then
+      if guid == Me.PLAYER_GUID then
+         Me.waiting_for_first_chunk = false
+         Me.Timer_Cancel( "enscriber_first_chunk_timeout" )
+         Me.ChatQueueNext()
+      end
+      return
+   end
+
    if Me.channels_busy[channel] and kind == Me.channels_busy[channel].type
                                           and guid == Me.PLAYER_GUID then
       RemoveFromTable( Me.chat_queue, Me.channels_busy[channel] )
@@ -759,6 +756,14 @@ function Me.OnChatMsgBnOffline( event, ... )
 end
 
 function Me.OnChatMsgGuildOfficer( event, _,_,_,_,_,_,_,_,_,_,_, guid )
+   -- If waiting for chunk[1]'s echo, this is it.
+   if Me.waiting_for_first_chunk and guid == Me.PLAYER_GUID then
+      Me.waiting_for_first_chunk = false
+      Me.Timer_Cancel( "enscriber_first_chunk_timeout" )
+      Me.ChatQueueNext()
+      return
+   end
+
    local cq = Me.channels_busy[2]
    if cq and guid == Me.PLAYER_GUID then
       event = event:sub( 10 )
@@ -771,6 +776,17 @@ end
 
 function Me.OnChatMsgCommunitiesChannel( event, _,_,_,_,_,_,_,_,_,_,_,
                                          guid, bn_sender_id )
+   -- If waiting for chunk[1]'s echo, this is it.
+   if Me.waiting_for_first_chunk then
+      if (guid and guid == Me.PLAYER_GUID)
+         or (bn_sender_id and bn_sender_id ~= 0 and BNIsSelf(bn_sender_id)) then
+         Me.waiting_for_first_chunk = false
+         Me.Timer_Cancel( "enscriber_first_chunk_timeout" )
+         Me.ChatQueueNext()
+         return
+      end
+   end
+
    local cq = Me.channels_busy[2]
    if not cq then return end
    if (guid and guid == Me.PLAYER_GUID)
@@ -781,6 +797,17 @@ function Me.OnChatMsgCommunitiesChannel( event, _,_,_,_,_,_,_,_,_,_,_,
 end
 
 function Me.OnClubMessageAdded( event, club_id, stream_id, message_id )
+   -- If waiting for chunk[1]'s echo, this is it.
+   if Me.waiting_for_first_chunk then
+      local message = C_Club.GetMessageInfo( club_id, stream_id, message_id )
+      if message.author.isSelf then
+         Me.waiting_for_first_chunk = false
+         Me.Timer_Cancel( "enscriber_first_chunk_timeout" )
+         Me.ChatQueueNext()
+         return
+      end
+   end
+
    local cq = Me.channels_busy[2]
    if not cq then return end
    local message = C_Club.GetMessageInfo( club_id, stream_id, message_id )
@@ -867,60 +894,37 @@ if not Me.editbox_hooked then
          local target   = editBox:GetTellTarget() or editBox:GetChannelTarget()
          if target == 0 then target = nil end
 
-         Me.editbox_first_chunk       = nil
-         Me.capturing_first_chunk     = true
-         Me.editbox_needs_placeholder = needs_split
-         Me.inside_hook               = "CHAT"
+         Me.editbox_first_chunk   = nil
+         Me.capturing_first_chunk = true
+         Me.editbox_needs_split   = needs_split
+         Me.inside_hook           = "CHAT"
          Me.AddChat( msg, chat_type, language, target )
-         Me.inside_hook               = nil
-         Me.capturing_first_chunk     = false
-         Me.editbox_needs_placeholder = false
+         Me.inside_hook           = nil
+         Me.capturing_first_chunk = false
+         Me.editbox_needs_split   = false
 
-         -- Set chunk[1] into the editbox FIRST, before releasing the
-         -- placeholder. Blizzard's SendText will fire immediately after this
-         -- hook returns, sending chunk[1]. Only then do we release the
-         -- placeholder and allow chunk[2+] to be dispatched, so the server
-         -- always receives them in order.
+         -- Set chunk[1] into the editbox. Blizzard's SendText will fire
+         -- immediately after this hook returns, sending chunk[1] on the wire.
+         -- Chunk[2+] are held by the waiting_for_first_chunk gate until the
+         -- server echo for chunk[1] arrives.
          if Me.editbox_first_chunk then
             editBox:SetText( Me.editbox_first_chunk )
             Me.editbox_first_chunk = nil
          end
 
-         -- Defer all chunk[2+] dispatch to the next frame. By then
-         -- Blizzard's SendText will have fired and sent chunk[1],
-         -- guaranteeing server order.
-         local channel = QUEUED_TYPES[chat_type]
+         -- Flush deferred commits for non-queued types (PARTY/RAID/WHISPER)
+         -- next frame, after Blizzard's SendText has sent chunk[1].
          local deferred = Me.editbox_deferred_commits
          Me.editbox_deferred_commits = nil
 
-         C_Timer.After( 0, function()
-            -- Release placeholder for channel 1 (SAY/EMOTE/YELL/BNET).
-            -- Channel 1 uses the continue-prompt system for chunk[2+],
-            -- which serialises dispatch at human speed via keypresses.
-            -- Releasing the placeholder here allows the queue to advance
-            -- once the user presses Enter.
-            --
-            -- For channels 2/3 (GUILD/OFFICER/CLUB), do NOT release here.
-            -- Those channels confirm via server echo events (CHAT_MSG_GUILD,
-            -- CLUB_MESSAGE_ADDED, etc.). Releasing early would dispatch
-            -- chunk[2] before the server confirms chunk[1], causing the
-            -- Club API to deliver them out of order.
-            if channel and channel == 1
-                       and Me.channels_busy[channel]
-                       and Me.channels_busy[channel]._editbox_placeholder then
-               Me.channels_busy[channel] = nil
-               Me.ChatQueueNext()
-            end
-
-            -- Flush deferred commits for non-queued types
-            -- (PARTY/RAID/WHISPER etc.)
-            if deferred then
+         if deferred then
+            C_Timer.After( 0, function()
                Me.DebugLog( "Flushing deferred commits: count=", #deferred )
                for _, pack in ipairs( deferred ) do
                   Me.CommitChat( pack )
                end
-            end
-         end)
+            end)
+         end
       end
    )
 end
