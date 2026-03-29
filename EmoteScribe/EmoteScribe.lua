@@ -149,31 +149,25 @@ end
 
 function Me.SendingText_ShowSending()
 	if not Me.db.global.showsending then return end
-	C_Timer.After( 0, function()
-		if not Me.sending_text then return end
-		local t = Me.sending_text
-		t.text:SetTextColor( 1,1,1,1 )
-		t.text:SetText( "Sending... " )
-		t:Show()
-	end)
+	local t = Me.sending_text
+	if not t then return end
+	t.text:SetTextColor( 1,1,1,1 )
+	t.text:SetText( "Sending... " )
+	t:Show()
 end
 
 function Me.SendingText_ShowFailed()
 	if not Me.db.global.showsending then return end
-	C_Timer.After( 0, function()
-		if not Me.sending_text then return end
-		local t = Me.sending_text
-		t.text:SetTextColor( 239/255,19/255,19/255,1 )
-		t.text:SetText( "Waiting..." )
-		t:Show()
-	end)
+	local t = Me.sending_text
+	if not t then return end
+	t.text:SetTextColor( 239/255,19/255,19/255,1 )
+	t.text:SetText( "Waiting..." )
+	t:Show()
 end
 
 function Me.SendingText_Hide()
-	C_Timer.After( 0, function()
-		if not Me.sending_text then return end
-		Me.sending_text:Hide()
-	end)
+	if not Me.sending_text then return end
+	Me.sending_text:Hide()
 end
 
 function Me.Enscriber_SEND_START()    Me.SendingText_ShowSending() end
