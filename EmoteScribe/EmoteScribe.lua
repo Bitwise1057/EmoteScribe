@@ -22,9 +22,9 @@ SlashCmdList["EMOTESCRIBE"] = function( msg )
 	if arg1:lower() == "debug" then
 		Enscriber.Internal.debug_mode = not Enscriber.Internal.debug_mode
 		if Enscriber.Internal.debug_mode then
-			print( "|cffff9900<EmoteScribe>|r Debug logging ON." )
+			print( "|cff00a9ec<EmoteScribe>|r Debug logging ON." )
 		else
-			print( "|cffff9900<EmoteScribe>|r Debug logging OFF." )
+			print( "|cff00a9ec<EmoteScribe>|r Debug logging OFF." )
 		end
 		return
 	end
@@ -55,7 +55,7 @@ SlashCmdList["EMOTESCRIBE"] = function( msg )
 			end
 		end
 
-		print( "|cffff9900<EmoteScribe>|r Lock diagnostics:" )
+		print( "|cff00a9ec<EmoteScribe>|r Lock diagnostics:" )
 		print( "  InCombatLockdown: " .. tostring(combat) )
 		print( "  InChatMessagingLockdown: " .. tostring(msgLock) )
 		print( "  IsLocked (composite): " .. tostring(isLocked) )
@@ -140,7 +140,7 @@ function Me:OnEnable()
 	lf:Hide()
 	lf.text = lf:CreateFontString( nil, "ARTWORK", "EmoteScribeSendingFont" )
 	lf.text:SetPoint( "BOTTOMLEFT" )
-	lf.text:SetTextColor( 1, 0.6, 0, 1 )
+	lf.text:SetTextColor( 0, 169/255, 236/255, 1 )
 	lf.text:SetText( "Lockdown: Splitting Paused" )
 	Me.lockdown_indicator = lf
 
@@ -151,7 +151,7 @@ function Me.SendingText_ShowSending()
 	if not Me.db.global.showsending then return end
 	local t = Me.sending_text
 	if not t then return end
-	t.text:SetTextColor( 1,1,1,1 )
+	t.text:SetTextColor( 0, 169/255, 236/255, 1 )
 	t.text:SetText( "Sending... " )
 	t:Show()
 end
@@ -200,7 +200,7 @@ end
 function Me.Enscriber_ENCOUNTER_LOCKDOWN_START()
 	Me.in_lockdown = true
 	if Me.db.global.showlockdown then
-		print( "|cffff9900<EmoteScribe>|r Message splitting paused"
+		print( "|cff00a9ec<EmoteScribe>|r Message splitting paused"
 		       .. " (encounter lockdown). 255 character limit applies." )
 	end
 	if Me.lockdown_indicator and Me.db.global.showlockdown then
