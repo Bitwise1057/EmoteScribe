@@ -480,20 +480,27 @@ function Me.QueueChat( msg, type, arg3, target )
       -- Single-chunk messages don't need ordering protection.
       if Me.editbox_needs_split then
          Me.waiting_for_first_chunk = true
-         if not Me.sending_active then
-            Me.sending_active = true
-            Me.FireEvent( "SEND_START" )
+         -- Only manage sending_active and the indicator for queued types.
+         -- Non-queued types (PARTY/RAID/WHISPER/INSTANCE) use THROTTLER_START
+         -- and THROTTLER_STOP for indicator visibility instead, matching the
+         -- original EmoteSplitter design. The timeout timer is also only needed
+         -- for queued types since non-queued have no echo-wait confirmation path.
+         if QUEUED_TYPES[type] then
+            if not Me.sending_active then
+               Me.sending_active = true
+               Me.FireEvent( "SEND_START" )
+            end
+            -- Safety timeout — if the echo never arrives, clear the gate
+            -- so the queue doesn't stall forever.
+            Me.Timer_Start( "enscriber_first_chunk_timeout", "push",
+               Me.CHAT_TIMEOUT, function()
+                  if Me.waiting_for_first_chunk then
+                     Me.DebugLog( "First chunk echo timeout — releasing gate." )
+                     Me.waiting_for_first_chunk = false
+                     Me.ChatQueueNext()
+                  end
+               end)
          end
-         -- Safety timeout — if the echo never arrives, clear the gate
-         -- so the queue doesn't stall forever.
-         Me.Timer_Start( "enscriber_first_chunk_timeout", "push",
-            Me.CHAT_TIMEOUT, function()
-               if Me.waiting_for_first_chunk then
-                  Me.DebugLog( "First chunk echo timeout - releasing gate." )
-                  Me.waiting_for_first_chunk = false
-                  Me.ChatQueueNext()
-               end
-            end)
       end
       return
    end
@@ -527,13 +534,9 @@ function Me.QueueChat( msg, type, arg3, target )
       -- During editbox capture, chunk[1] hasn't been staged yet. Defer
       -- subsequent chunks so the throttler doesn't send them before chunk[1].
       if Me.capturing_first_chunk == false and Me.editbox_first_chunk ~= nil then
-         Me.DebugLog( "Deferring non-queued chunk, type=", type )
          Me.editbox_deferred_commits = Me.editbox_deferred_commits or {}
          table.insert( Me.editbox_deferred_commits, msg_pack )
       else
-         Me.DebugLog( "CommitChat non-queued chunk, type=", type,
-                      "capturing=", tostring(Me.capturing_first_chunk),
-                      "first_chunk=", tostring(Me.editbox_first_chunk ~= nil) )
          Me.CommitChat( msg_pack )
       end
    end
@@ -919,7 +922,6 @@ if not Me.editbox_hooked then
 
          if deferred then
             C_Timer.After( 0, function()
-               Me.DebugLog( "Flushing deferred commits: count=", #deferred )
                for _, pack in ipairs( deferred ) do
                   Me.CommitChat( pack )
                end
