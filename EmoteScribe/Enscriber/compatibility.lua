@@ -8,22 +8,35 @@ if not Me.load then return end
 function Me.AddCompatibilityLayers()
 	Me.UCMCompatibility()
 	Me.EmoteSplitterCompatibility()
-	-- Me.MisspelledCompatibility()
+	Me.MisspelledCompatibility()
 end
 
--- UnlimitedChatMessage: remove its SendChatMessage hook, keep its editbox work.
+-- UnlimitedChatMessage: warn the user and offer to disable it.
+StaticPopupDialogs["EMOTESCRIBE_UCM_CONFLICT"] = {
+	text        = "|cff00a9ecEmoteScribe|r has detected that |cffff4400UnlimitedChatMessage|r"
+	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
+	              .. " conflict with each other.\n\nPlease disable UnlimitedChatMessage.",
+	button1     = "Disable & Reload",
+	button2     = "Ignore",
+	OnAccept    = function()
+		C_AddOns.DisableAddOn( "UnlimitedChatMessage" )
+		ReloadUI()
+	end,
+	OnCancel    = function()
+		Me.ucm_conflict_ignored = true
+	end,
+	timeout     = 0,
+	whileDead   = true,
+	hideOnEscape = true,
+}
+
 function Me.UCMCompatibility()
-	if Me.compatibility_ucm then return end
-	if not UCM then return end
-	if UCM.core.hooks.SendChatMessage then
-		Me.compatibility_ucm = true
-		UCM.core:Unhook( "SendChatMessage" )
-	end
+	if Me.ucm_conflict_ignored then return end
+	if not C_AddOns.IsAddOnLoaded( "UnlimitedChatMessage" ) then return end
+	StaticPopup_Show( "EMOTESCRIBE_UCM_CONFLICT" )
 end
 
--- EmoteSplitter: warn the user and offer to disable it. The two addons hook
--- the same chat dispatch path and will conflict, causing duplicate or dropped
--- messages. Detection via LibGopher, the internal library EmoteSplitter exposes.
+-- EmoteSplitter: warn the user and offer to disable it.
 StaticPopupDialogs["EMOTESCRIBE_EMOTESPLITTER_CONFLICT"] = {
 	text        = "|cff00a9ecEmoteScribe|r has detected that |cffff4400EmoteSplitter|r"
 	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
@@ -48,19 +61,27 @@ function Me.EmoteSplitterCompatibility()
 	StaticPopup_Show( "EMOTESCRIBE_EMOTESPLITTER_CONFLICT" )
 end
 
---[[ Misspelled: unhook its SendChatMessage and run its highlight removal via
--- a listener instead, so it doesn't shrink already-split chunks.
+-- Misspelled: warn the user and offer to disable it.
+StaticPopupDialogs["EMOTESCRIBE_MISSPELLED_CONFLICT"] = {
+	text        = "|cff00a9ecEmoteScribe|r has detected that |cffff4400Misspelled|r"
+	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
+	              .. " conflict with each other.\n\nPlease disable Misspelled.",
+	button1     = "Disable & Reload",
+	button2     = "Ignore",
+	OnAccept    = function()
+		C_AddOns.DisableAddOn( "Misspelled" )
+		ReloadUI()
+	end,
+	OnCancel    = function()
+		Me.misspelled_conflict_ignored = true
+	end,
+	timeout     = 0,
+	whileDead   = true,
+	hideOnEscape = true,
+}
+
 function Me.MisspelledCompatibility()
-	if Me.compatibility_misspelled then return end
-	if not Misspelled then return end
-	if not Misspelled.hooks or not Misspelled.hooks.SendChatMessage then return end
-
-	Me.compatibility_misspelled = true
-	Misspelled:Unhook( "SendChatMessage" )
-
-	-- Misspelled highlight removal is hooked into the editbox pre-send path
-	-- by the main addon (EmoteScribe.lua) rather than as an Enscriber event
-	-- listener, since CHAT_NEW no longer exists. The unhook above is still
-	-- needed to prevent Misspelled from interfering with SendChatMessage.
+	if Me.misspelled_conflict_ignored then return end
+	if not C_AddOns.IsAddOnLoaded( "Misspelled" ) then return end
+	StaticPopup_Show( "EMOTESCRIBE_MISSPELLED_CONFLICT" )
 end
---]]
