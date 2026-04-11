@@ -12,6 +12,7 @@ local DEFAULTS = {
 	showsending     = true;
 	showlockdown    = true;
 	emoteprotection = true;
+	rpsyntax        = true;
 }
 
 -------------------------------------------------------------------------------
@@ -61,13 +62,14 @@ end
 function Me.Options_Apply()
 	Enscriber.HideFailureMessages( DB_Get("hidefailed") )
 	Enscriber.SetSplitmarks( DB_Get("premark"), DB_Get("postmark"), true )
+	LibEnscriber.Internal.handle_rp_syntax = DB_Get("rpsyntax")
 end
 
 -------------------------------------------------------------------------------
 -- Native settings window
 -------------------------------------------------------------------------------
 local WINDOW_W = 380
-local WINDOW_H = 338
+local WINDOW_H = 366
 
 local function MakeLabel( parent, text, x, y, width )
 	local f = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -168,7 +170,8 @@ function Me.Options_Build()
 	-- Title bar
 	local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 	title:SetPoint("TOP", 0, -16)
-	title:SetText("Emote Scribe")
+	title:SetText("EmoteScribe")
+	title:SetTextColor( 0, 169/255, 236/255, 1 )
 
 	local ver = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	ver:SetPoint("TOP", 0, -30)
@@ -257,6 +260,16 @@ function Me.Options_Build()
 		function(v)
 			DB_Set("emoteprotection", v)
 			Me.EmoteProtection.OptionsChanged()
+		end)
+	y = y - 28
+
+	MakeCheckbox(f, "RP Syntax Continuity",
+		"When a message splits mid-delimiter (e.g. inside \" quotes or *emote* asterisks), automatically closes the delimiter on the outgoing chunk and reopens it on the next chunk.",
+		PAD_L, y,
+		function() return DB_Get("rpsyntax") end,
+		function(v)
+			DB_Set("rpsyntax", v)
+			Me.Options_Apply()
 		end)
 
 	-- Close button
