@@ -86,8 +86,9 @@ Me.latency_recording = nil
 
 Me.hide_failure_messages = true
 
-Me.splitmark_start = "»"
-Me.splitmark_end   = "»"
+Me.splitmark_start   = "»"
+Me.splitmark_end     = "»"
+Me.handle_rp_syntax  = true
 
 Me.chat_replacement_patterns = {
    -- Protect chat links from being split mid-link.
@@ -378,6 +379,96 @@ function Me.AddChat( msg, chat_type, arg3, target )
 end
 
 -------------------------------------------------------------------------------
+-- RP delimiter continuity helpers.
+-- When a chunk boundary falls inside an open RP delimiter (e.g. " or *),
+-- the closing symbol is appended to the outgoing chunk and the opening symbol
+-- is prepended to the next chunk so the reader sees an unbroken context.
+--
+-- Delimiter table is sorted longest-open-first so "**" matches before "*".
+local RP_SYNTAX_DELIMS = {
+   { open = "**", close = "**" };
+   { open = "((",  close = "))" };
+   { open = "\"",  close = "\"" };
+   { open = "*",   close = "*"  };
+   { open = "(",   close = ")"  };
+   { open = "<",   close = ">"  };
+}
+
+-- Walk 'text', pushing/popping 'stack' as delimiters open and close.
+local function UpdateDelimStack( text, stack )
+   local i = 1
+   while i <= #text do
+      local matched = false
+
+      -- Check if the top of the stack's closer starts here.
+      -- Guard against matching a shorter closer that is a prefix of a longer
+      -- delimiter (e.g. don't close "*" when the text has "**").
+      local top = stack[#stack]
+      if top then
+         local close = top.close
+         if text:sub( i, i + #close - 1 ) == close then
+            -- Make sure this isn't the prefix of a longer delimiter token.
+            local is_prefix = false
+            for _, delim in ipairs( RP_SYNTAX_DELIMS ) do
+               if #delim.open > #close
+                  and text:sub( i, i + #delim.open - 1 ) == delim.open then
+                  is_prefix = true
+                  break
+               end
+            end
+            if not is_prefix then
+               table.remove( stack )
+               i = i + #close
+               matched = true
+            end
+         end
+      end
+
+      if not matched then
+         for _, delim in ipairs( RP_SYNTAX_DELIMS ) do
+            if text:sub( i, i + #delim.open - 1 ) == delim.open then
+               table.insert( stack, delim )
+               i = i + #delim.open
+               matched = true
+               break
+            end
+         end
+      end
+
+      if not matched then
+         -- Step over the full UTF-8 codepoint to avoid misaligning on
+         -- multi-byte characters (e.g. em dash U+2014 = 3 bytes).
+         local b = text:byte( i )
+         if b >= 240 then
+            i = i + 4
+         elseif b >= 224 then
+            i = i + 3
+         elseif b >= 192 then
+            i = i + 2
+         else
+            i = i + 1
+         end
+      end
+   end
+end
+
+-- Append close symbols for all open delimiters (innermost first) to 'text'.
+local function AppendClosers( text, stack )
+   for i = #stack, 1, -1 do
+      text = text .. stack[i].close
+   end
+   return text
+end
+
+-- Prepend open symbols for all open delimiters (outermost first) to 'text'.
+local function PrependOpeners( text, stack )
+   for i = 1, #stack do
+      text = stack[i].open .. text
+   end
+   return text
+end
+
+-------------------------------------------------------------------------------
 -- Split a message into chunks of chunk_size, preserving chat links and words.
 function Me.SplitMessage( text, chunk_size, splitmark_start, splitmark_end )
    chunk_size      = chunk_size or Me.default_chunk_sizes.OTHER
@@ -415,23 +506,65 @@ function Me.SplitMessage( text, chunk_size, splitmark_start, splitmark_end )
    if splitmark_start ~= "" then splitmark_start = splitmark_start .. " " end
    if splitmark_end   ~= "" then splitmark_end   = " " .. splitmark_end   end
 
+   local handle_rp = Me.handle_rp_syntax
+   local rp_stack  = {}   -- tracks currently-open RP delimiters
+   -- Bytes to skip at the start of each chunk_text before walking for delimiters.
+   -- On the first chunk this is 0 (no splitmark prefix yet).
+   -- After each cut it is set to #splitmark_start + total injected opener bytes,
+   -- so that the re-opened delimiter prefix is not re-parsed into the stack.
+   local sm_skip   = 0
+
    local chunks = {}
    while( text:len() > chunk_size ) do
-      for i = chunk_size+1 - splitmark_end:len(), 1, -1 do
+      for i = chunk_size - splitmark_end:len(), 1, -1 do
          local ch = string.byte( text, i )
          if ch == 32 or ch == 1 then
             local offset = 0
             if ch == 32 then offset = 1 end
-            table.insert( chunks, text:sub( 1, i-1 ) .. splitmark_end )
-            text = splitmark_start .. text:sub( i+offset )
+
+            local chunk_text = text:sub( 1, i-1 )
+            local remainder  = text:sub( i+offset )
+
+            if handle_rp then
+               -- Walk only new content, skipping splitmark + injected opener prefix.
+               UpdateDelimStack( chunk_text:sub( sm_skip + 1 ), rp_stack )
+
+               local opener_bytes = 0
+               if #rp_stack > 0 then
+                  chunk_text = AppendClosers( chunk_text, rp_stack )
+                  local reopened = PrependOpeners( "", rp_stack )
+                  opener_bytes = #reopened
+                  remainder = reopened .. remainder
+               end
+               sm_skip = #splitmark_start + opener_bytes
+            end
+
+            table.insert( chunks, chunk_text .. splitmark_end )
+            text = splitmark_start .. remainder
             break
          end
          if i <= 16 then
-            for i = chunk_size+1 - splitmark_end:len(), 1, -1 do
+            for i = chunk_size - splitmark_end:len(), 1, -1 do
                local ch = text:byte(i)
                if (ch >= 32 and ch < 128) or (ch >= 192) then
-                  table.insert( chunks, text:sub( 1, i-1 ) .. splitmark_end )
-                  text = splitmark_start .. text:sub( i )
+                  local chunk_text = text:sub( 1, i-1 )
+                  local remainder  = text:sub( i )
+
+                  if handle_rp then
+                     UpdateDelimStack( chunk_text:sub( sm_skip + 1 ), rp_stack )
+
+                     local opener_bytes = 0
+                     if #rp_stack > 0 then
+                        chunk_text = AppendClosers( chunk_text, rp_stack )
+                        local reopened = PrependOpeners( "", rp_stack )
+                        opener_bytes = #reopened
+                        remainder = reopened .. remainder
+                     end
+                     sm_skip = #splitmark_start + opener_bytes
+                  end
+
+                  table.insert( chunks, chunk_text .. splitmark_end )
+                  text = splitmark_start .. remainder
                   break
                end
                if i <= 128 then return {""} end
