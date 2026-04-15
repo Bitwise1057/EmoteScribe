@@ -64,8 +64,13 @@ end
 -- Misspelled: warn the user and offer to disable it.
 StaticPopupDialogs["EMOTESCRIBE_MISSPELLED_CONFLICT"] = {
 	text        = "|cff00a9ecEmoteScribe|r has detected that |cffff4400Misspelled|r"
-	              .. " is enabled.\n\nBoth addons manage chat splitting and will"
-	              .. " conflict with each other.\n\nPlease disable Misspelled.",
+	              .. " is enabled."
+	              .. "\n\nMisspelled is known to cause issues in instanced combat"
+	              .. " on WoW 12.0 (Midnight) due to an incompatibility with the"
+	              .. " client's security model. Leaving both addons enabled may"
+	              .. " result in unexpected errors or broken chat behavior during"
+	              .. " encounters."
+	              .. "\n\nPlease disable Misspelled.",
 	button1     = "Disable & Reload",
 	button2     = "Ignore",
 	OnAccept    = function()
