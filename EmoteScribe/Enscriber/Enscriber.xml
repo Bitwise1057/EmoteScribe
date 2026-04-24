@@ -10,6 +10,9 @@
   
   <!-- Compatibility with other addons. -->
   <Script file="compatibility.lua"/>
+
+  <!-- Optional addon integrations (loaded after compatibility.lua). -->
+  <Script file="Modules/Speaketh/Speaketh.lua"/>
   
   <!-- Public API. -->
   <Script file="api.lua"/>

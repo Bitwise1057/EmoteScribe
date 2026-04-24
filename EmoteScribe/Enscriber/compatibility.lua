@@ -9,6 +9,7 @@ function Me.AddCompatibilityLayers()
 	Me.UCMCompatibility()
 	Me.EmoteSplitterCompatibility()
 	Me.MisspelledCompatibility()
+	Me.SpeakethCompatibility()
 end
 
 -- UnlimitedChatMessage: warn the user and offer to disable it.
