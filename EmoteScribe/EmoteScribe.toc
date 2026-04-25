@@ -1,7 +1,7 @@
 #------------------------------------------------------------------------------
 ## Interface: 120005
 ## Title: EmoteScribe
-## Version: 1.1.4
+## Version: 1.1.5
 ## Notes: Splits long emotes and messages across all chat channels.
 ## Author: VfX / Bitwise1057
 ## SavedVariables: EmoteScribeSaved
@@ -15,3 +15,5 @@ indicator.xml
 EmoteScribe.lua
 emoteprotection.lua
 options.lua
+Modules\Spellcheck\Dic_enUS.lua
+Modules\Spellcheck\Spellcheck.lua
