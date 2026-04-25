@@ -145,6 +145,9 @@ function Me:OnEnable()
 	Me.lockdown_indicator = lf
 
 	Me.EmoteProtection.Init()
+	if Me.Spellcheck and Me.Spellcheck.Init then
+		Me.Spellcheck.Init()
+	end
 end
 
 function Me.SendingText_ShowSending()
