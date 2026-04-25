@@ -13,6 +13,10 @@ local DEFAULTS = {
 	showlockdown    = true;
 	emoteprotection = true;
 	rpsyntax        = true;
+	spellcheck_enabled       = false;
+	spellcheck_color         = "00a9ec";
+	spellcheck_ignore_caps   = true;
+	spellcheck_ignore_numbers = true;
 }
 
 -------------------------------------------------------------------------------
@@ -56,6 +60,9 @@ function Me.Options_Apply()
 	Enscriber.HideFailureMessages( DB_Get("hidefailed") )
 	Enscriber.SetSplitmarks( DB_Get("premark"), DB_Get("postmark"), true )
 	LibEnscriber.Internal.handle_rp_syntax = DB_Get("rpsyntax")
+	if Me.Spellcheck and Me.Spellcheck.ApplySettings then
+		Me.Spellcheck.ApplySettings()
+	end
 end
 
 -------------------------------------------------------------------------------
@@ -167,6 +174,22 @@ local function RefreshStatusTab()
 		end
 	end
 
+	if moduleRows[2] then
+		local sc = Me.Spellcheck
+		if sc and sc.dictionaryLoaded then
+			if sc.enabled then
+				moduleRows[2]:SetText("Loaded")
+				moduleRows[2]:SetTextColor(0.2, 0.9, 0.2, 1)
+			else
+				moduleRows[2]:SetText("Disabled")
+				moduleRows[2]:SetTextColor(0.7, 0.7, 0.2, 1)
+			end
+		else
+			moduleRows[2]:SetText("Not Loaded")
+			moduleRows[2]:SetTextColor(0.9, 0.2, 0.2, 1)
+		end
+	end
+
 	-- Compatibility checks
 	local anyBad = false
 	for i, entry in ipairs(COMPAT_ADDONS) do
@@ -231,19 +254,6 @@ local function MakeSidebarTab( sidebar, label, yOffset )
 	return btn
 end
 
-local function SetActiveTab( activePanel, inactivePanel, activeBtn, inactiveBtn )
-	activePanel:Show()
-	inactivePanel:Hide()
-	-- Active tab: background + accent bar + bright label
-	activeBtn.bg:Show()
-	activeBtn.accent:Show()
-	activeBtn.lbl:SetTextColor(0, 169/255, 236/255, 1)
-	-- Inactive tab: no background, no accent, dimmed label
-	inactiveBtn.bg:Hide()
-	inactiveBtn.accent:Hide()
-	inactiveBtn.lbl:SetTextColor(0.5, 0.5, 0.5, 1)
-end
-
 function Me.Options_Build()
 	if Me.options_frame then return end
 
@@ -304,9 +314,10 @@ function Me.Options_Build()
 	divSide:SetPoint("BOTTOMLEFT", sidebar, "BOTTOMRIGHT", 0, 0)
 	divSide:SetWidth(1)
 
-	-- Sidebar tabs: Status (top), General (below)
-	local tabStatus  = MakeSidebarTab(sidebar, "Status",  -8)
-	local tabGeneral = MakeSidebarTab(sidebar, "General", -36)
+	-- Sidebar tabs: Status (top), General (below), Spellcheck (below General)
+	local tabStatus     = MakeSidebarTab(sidebar, "Status",     -8)
+	local tabGeneral    = MakeSidebarTab(sidebar, "General",   -36)
+	local tabSpellcheck = MakeSidebarTab(sidebar, "Spellcheck", -64)
 
 	-------------------------------------------------------------------------------
 	-- Content area clip frame (shared)
@@ -366,6 +377,7 @@ function Me.Options_Build()
 	StatusSectionLabel("Registered Modules")
 
 	moduleRows[1] = StatusRow("Speaketh")
+	moduleRows[2] = StatusRow("Spellcheck")
 
 	sy = sy - 6
 	StatusDivider()
@@ -492,19 +504,199 @@ function Me.Options_Build()
 		end)
 
 	-------------------------------------------------------------------------------
+	-- Spellcheck panel
+	-------------------------------------------------------------------------------
+	local spellcheckPanel = CreateFrame("Frame", nil, f)
+	spellcheckPanel:SetPoint("TOPLEFT",     PAD_L, CONTENT_TOP)
+	spellcheckPanel:SetPoint("BOTTOMRIGHT", PAD_R, CONTENT_BOT)
+
+	local sy2 = -8
+
+	local scEnableCB = MakeCheckbox(spellcheckPanel, "Enable Spellcheck",
+		"Highlight misspelled words in the chat editbox as you type.",
+		0, sy2,
+		function() return DB_Get("spellcheck_enabled") end,
+		function(v)
+			DB_Set("spellcheck_enabled", v)
+			Me.Options_Apply()
+		end)
+
+	-- Alert triangle: warns about rare taint errors in combat encounters.
+	local scAlert = spellcheckPanel:CreateTexture(nil, "OVERLAY")
+	scAlert:SetTexture("Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
+	scAlert:SetSize(16, 16)
+	scAlert:SetPoint("LEFT", scEnableCB, "RIGHT", 140, 0)
+
+	local scAlertBtn = CreateFrame("Frame", nil, spellcheckPanel)
+	scAlertBtn:SetAllPoints(scAlert)
+	scAlertBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine("Compatibility Warning", 1, 0.82, 0)
+		GameTooltip:AddLine("When enabled, spellcheck highlighting may cause rare errors if a message containing highlighted text is sent during an encounter or instance lockdown.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	scAlertBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	sy2 = sy2 - 28
+
+	MakeCheckbox(spellcheckPanel, "Ignore ALL CAPS Words",
+		"Words written entirely in capitals (e.g. NPC names, acronyms) are not flagged.",
+		0, sy2,
+		function() return DB_Get("spellcheck_ignore_caps") end,
+		function(v)
+			DB_Set("spellcheck_ignore_caps", v)
+			Me.Options_Apply()
+		end)
+	sy2 = sy2 - 28
+
+	MakeCheckbox(spellcheckPanel, "Ignore Words with Numbers",
+		"Words containing digits (e.g. item names, coordinates) are not flagged.",
+		0, sy2,
+		function() return DB_Get("spellcheck_ignore_numbers") end,
+		function(v)
+			DB_Set("spellcheck_ignore_numbers", v)
+			Me.Options_Apply()
+		end)
+	sy2 = sy2 - 36
+
+	local divSC = spellcheckPanel:CreateTexture(nil, "OVERLAY")
+	divSC:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+	divSC:SetPoint("TOPLEFT",  0, sy2 + 6)
+	divSC:SetPoint("TOPRIGHT", 0, sy2 + 6)
+	divSC:SetHeight(1)
+	sy2 = sy2 - 12
+
+	-- "Highlight Color" label — same style as "Advanced Formatting"
+	local scColorLabel = spellcheckPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	scColorLabel:SetPoint("TOPLEFT", 0, sy2)
+	scColorLabel:SetText("Highlight Color")
+	scColorLabel:SetTextColor(0, 169/255, 236/255, 0.8)
+	sy2 = sy2 - 22
+
+	-- Helper: parse a 6-char hex string to r,g,b in [0,1]
+	local function HexToRGB(hex)
+		hex = hex or "00a9ec"
+		local r = tonumber(hex:sub(1,2), 16) / 255
+		local g = tonumber(hex:sub(3,4), 16) / 255
+		local b = tonumber(hex:sub(5,6), 16) / 255
+		return r, g, b
+	end
+
+	-- Helper: convert r,g,b in [0,1] to 6-char uppercase hex string
+	local function RGBToHex(r, g, b)
+		return string.format("%02X%02X%02X",
+			math.floor(r * 255 + 0.5),
+			math.floor(g * 255 + 0.5),
+			math.floor(b * 255 + 0.5))
+	end
+
+	-- Color swatch button — shows current color, opens picker on click
+	local scSwatch = CreateFrame("Button", nil, spellcheckPanel, "BackdropTemplate")
+	scSwatch:SetPoint("TOPLEFT", 0, sy2)
+	scSwatch:SetSize(36, 22)
+	scSwatch:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground";
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border";
+		edgeSize = 8;
+		insets   = { left=3, right=3, top=3, bottom=3 };
+	})
+	scSwatch:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+
+	local scSwatchColor = scSwatch:CreateTexture(nil, "ARTWORK")
+	scSwatchColor:SetPoint("TOPLEFT",     3, -3)
+	scSwatchColor:SetPoint("BOTTOMRIGHT", -3, 3)
+
+	local function UpdateSwatch()
+		local r, g, b = HexToRGB(DB_Get("spellcheck_color"))
+		scSwatchColor:SetColorTexture(r, g, b, 1)
+	end
+	UpdateSwatch()
+
+	scSwatch:SetScript("OnClick", function()
+		local r, g, b = HexToRGB(DB_Get("spellcheck_color"))
+
+		local function OnColorChanged()
+			local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+			DB_Set("spellcheck_color", RGBToHex(nr, ng, nb))
+			UpdateSwatch()
+			Me.Options_Apply()
+		end
+
+		local function OnColorCancelled(prevValues)
+			DB_Set("spellcheck_color", RGBToHex(prevValues.r, prevValues.g, prevValues.b))
+			UpdateSwatch()
+			Me.Options_Apply()
+		end
+
+		OpenColorPicker({
+			r           = r,
+			g           = g,
+			b           = b,
+			hasOpacity  = false,
+			swatchFunc  = OnColorChanged,
+			opacityFunc = nil,
+			cancelFunc  = OnColorCancelled,
+		})
+	end)
+
+	scSwatch:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Click to choose a highlight color.", nil, nil, nil, nil, true)
+		GameTooltip:Show()
+	end)
+	scSwatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	-- Reset to Default button — placed to the right of the swatch
+	local scResetBtn = MakeButton(spellcheckPanel, "Reset to Default", 44, sy2, 130, function()
+		DB_Set("spellcheck_color", "00a9ec")
+		UpdateSwatch()
+		Me.Options_Apply()
+	end)
+
+	sy2 = sy2 - 36
+
+	local divSC2 = spellcheckPanel:CreateTexture(nil, "OVERLAY")
+	divSC2:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+	divSC2:SetPoint("TOPLEFT",  0, sy2 + 6)
+	divSC2:SetPoint("TOPRIGHT", 0, sy2 + 6)
+	divSC2:SetHeight(1)
+	sy2 = sy2 - 12
+
+	-------------------------------------------------------------------------------
 	-- Tab switching
 	-------------------------------------------------------------------------------
+	local function SetActiveTab( activePanel, activBtn, ... )
+		-- Hide all panels, deactivate all buttons.
+		local allPanels = { statusScroll, generalPanel, spellcheckPanel }
+		local allBtns   = { tabStatus, tabGeneral, tabSpellcheck }
+		for _, p in ipairs(allPanels) do p:Hide() end
+		for _, b in ipairs(allBtns) do
+			b.bg:Hide()
+			b.accent:Hide()
+			b.lbl:SetTextColor(0.5, 0.5, 0.5, 1)
+		end
+		-- Activate selected.
+		activePanel:Show()
+		activBtn.bg:Show()
+		activBtn.accent:Show()
+		activBtn.lbl:SetTextColor(0, 169/255, 236/255, 1)
+	end
+
 	tabStatus:SetScript("OnClick", function()
-		SetActiveTab(statusScroll, generalPanel, tabStatus, tabGeneral)
+		SetActiveTab(statusScroll, tabStatus)
 		RefreshStatusTab()
 	end)
 
 	tabGeneral:SetScript("OnClick", function()
-		SetActiveTab(generalPanel, statusScroll, tabGeneral, tabStatus)
+		SetActiveTab(generalPanel, tabGeneral)
+	end)
+
+	tabSpellcheck:SetScript("OnClick", function()
+		SetActiveTab(spellcheckPanel, tabSpellcheck)
 	end)
 
 	-- Default: General tab active
-	SetActiveTab(generalPanel, statusScroll, tabGeneral, tabStatus)
+	SetActiveTab(generalPanel, tabGeneral)
 
 	-- Close button
 	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
