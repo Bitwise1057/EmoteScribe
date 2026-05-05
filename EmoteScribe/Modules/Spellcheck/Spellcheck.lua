@@ -260,7 +260,102 @@ end
 
 -------------------------------------------------------------------------------
 -- Word lookup — cached, lowercase hash.
+--
+-- TryVariants handles two common false-positive cases:
+--
+--   1. Contractions / possessives — "it's", "what's", "dragon's", "they're":
+--      Split on the apostrophe and accept if the pre-apostrophe stem is in
+--      the dictionary.  Single-char stems (e.g. the lone "I" in "I'll") are
+--      let through by the #word <= 1 guard in Contains, so we only need to
+--      worry about len >= 2 stems.
+--
+--   2. Inflected forms — plurals ("cats"), past tense ("played"), progressive
+--      ("running"), comparatives ("faster"), etc.: Strip the most common
+--      English suffixes in specificity order and accept if any stripped form
+--      is in the dictionary.  Minimal stemming only — we stop at the first
+--      hit to avoid over-stripping (e.g. "ies→y" before "s").
 -------------------------------------------------------------------------------
+local SUFFIXES = {
+    -- longer / more specific first
+    { "iest",  ""  },   -- happiest → happy (via iest→y path below)
+    { "iest",  "y" },
+    { "ier",   "y" },
+    { "ying",  "ie"},   -- dying → die (ying→ie)
+    { "ying",  "y" },
+    { "ying",  ""  },
+    { "ping",  "p" },   -- stopping → stop
+    { "ting",  "t" },   -- hitting → hit
+    { "ning",  "n" },   -- running → run
+    { "ring",  "r" },   -- starring → star
+    { "ding",  "d" },
+    { "king",  "k" },
+    { "bing",  "b" },
+    { "ming",  "m" },
+    { "sing",  "s" },
+    { "ging",  "g" },
+    { "fing",  "f" },
+    { "zing",  "z" },
+    { "ling",  "l" },
+    { "xing",  "x" },
+    { "ing",   "e" },   -- taking → take
+    { "ing",   ""  },   -- talking → talk
+    { "pped",  "p" },   -- stopped → stop
+    { "tted",  "t" },   -- batted → bat
+    { "nned",  "n" },
+    { "rred",  "r" },
+    { "dded",  "d" },
+    { "ied",   "y" },   -- carried → carry
+    { "ied",   ""  },
+    { "ed",    "e" },   -- liked → like
+    { "ed",    ""  },   -- walked → walk
+    { "ies",   "y" },   -- flies → fly
+    { "ves",   "f" },   -- wolves → wolf
+    { "ves",   "fe"},   -- knives → knife
+    { "ses",   "s" },   -- classes → class
+    { "zes",   "z" },   -- fizzes → fizz
+    { "xes",   "x" },   -- boxes → box
+    { "hes",   "h" },   -- wishes → wish
+    { "es",    "e" },   -- fades → fade
+    { "es",    ""  },   -- boxes already handled, remaining -es
+    { "s",     ""  },   -- cats → cat  (kept last — most ambiguous)
+    { "er",    "e" },   -- nicer → nice
+    { "er",    ""  },   -- faster → fast
+    { "est",   "e" },
+    { "est",   ""  },
+    { "ly",    ""  },   -- quickly → quick
+    { "ness",  ""  },   -- darkness → dark
+    { "less",  ""  },   -- useless → use  (rough)
+    { "ful",   ""  },   -- helpful → help
+}
+
+local function InBase(w)
+    return #w >= 2 and SC.baseWords[w] == true
+end
+
+local function TryVariants(lword)
+    -- 1. Contraction / possessive split: accept on pre-apostrophe stem.
+    local apos = lword:find("'", 1, true)
+    if apos then
+        local stem = lword:sub(1, apos - 1)
+        if InBase(stem) then return true end
+        -- bare possessive like "dragon's" — stem already checked above
+        return false  -- don't stem contractions further; too noisy
+    end
+
+    -- 2. Suffix stripping.
+    local len = #lword
+    for _, pair in ipairs(SUFFIXES) do
+        local suf, repl = pair[1], pair[2]
+        local slen = #suf
+        if len > slen + 1 and lword:sub(-slen) == suf then
+            local stem = lword:sub(1, len - slen) .. repl
+            if InBase(stem) then return true end
+        end
+    end
+
+    return false
+end
+
 function SC.Contains(word)
     if #word <= 1 then return true end
 
@@ -272,7 +367,9 @@ function SC.Contains(word)
         SC.wordCache = {}; SC.wordCacheCount = 1
     end
 
-    local result = SC.baseWords[string.lower(word)] == true
+    local lword  = string.lower(word)
+    local result = SC.baseWords[lword] == true
+                   or TryVariants(lword)
     SC.wordCache[word] = result
     return result
 end
