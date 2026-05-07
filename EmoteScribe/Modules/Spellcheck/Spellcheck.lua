@@ -332,6 +332,23 @@ local function InBase(w)
     return #w >= 2 and SC.baseWords[w] == true
 end
 
+-- Prefixes defined in Dic_enUS.lua: re-, in-, un-, de-, dis-, con-, pro-.
+-- Stripped in longest-first order so "dis" is tried before "de".
+local PREFIXES = { "dis", "con", "pro", "re", "in", "un", "de" }
+
+local function StripSuffix(word)
+    local len = #word
+    for _, pair in ipairs(SUFFIXES) do
+        local suf, repl = pair[1], pair[2]
+        local slen = #suf
+        if len > slen + 1 and word:sub(-slen) == suf then
+            local stem = word:sub(1, len - slen) .. repl
+            if InBase(stem) then return true end
+        end
+    end
+    return false
+end
+
 local function TryVariants(lword)
     -- 1. Contraction / possessive split: accept on pre-apostrophe stem.
     local apos = lword:find("'", 1, true)
@@ -343,13 +360,18 @@ local function TryVariants(lword)
     end
 
     -- 2. Suffix stripping.
-    local len = #lword
-    for _, pair in ipairs(SUFFIXES) do
-        local suf, repl = pair[1], pair[2]
-        local slen = #suf
-        if len > slen + 1 and lword:sub(-slen) == suf then
-            local stem = lword:sub(1, len - slen) .. repl
+    if StripSuffix(lword) then return true end
+
+    -- 3. Prefix stripping — then base lookup, then suffix stripping on remainder.
+    --    Covers: remind → mind, undo → do, disconnect → connect,
+    --            reminded → mind (prefix strip → suffix strip), etc.
+    for _, pfx in ipairs(PREFIXES) do
+        local plen = #pfx
+        if #lword > plen + 1 and lword:sub(1, plen) == pfx then
+            local stem = lword:sub(plen + 1)
             if InBase(stem) then return true end
+            -- prefix + suffix combined (e.g. reminded → re+mind+ed)
+            if StripSuffix(stem) then return true end
         end
     end
 
