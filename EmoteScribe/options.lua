@@ -41,6 +41,9 @@ function Me.Options_Init()
 	if type(EmoteScribeSaved.char.undo_history) ~= "table" then
 		EmoteScribeSaved.char.undo_history = {}
 	end
+	if type(EmoteScribeSaved.global.spellcheck_whitelist) ~= "table" then
+		EmoteScribeSaved.global.spellcheck_whitelist = {}
+	end
 	for k, v in pairs(DEFAULTS) do
 		if EmoteScribeSaved.global[k] == nil then
 			EmoteScribeSaved.global[k] = v
@@ -661,6 +664,293 @@ function Me.Options_Build()
 	divSC2:SetPoint("TOPRIGHT", 0, sy2 + 6)
 	divSC2:SetHeight(1)
 	sy2 = sy2 - 12
+
+	-------------------------------------------------------------------------------
+	-- Whitelist (custom words)
+	-------------------------------------------------------------------------------
+	local wlLabel = spellcheckPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	wlLabel:SetPoint("TOPLEFT", 0, sy2)
+	wlLabel:SetText("Whitelist")
+	wlLabel:SetTextColor(0, 169/255, 236/255, 0.8)
+
+	local wlInfo = spellcheckPanel:CreateTexture(nil, "OVERLAY")
+	wlInfo:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+	wlInfo:SetSize(14, 14)
+	wlInfo:SetPoint("LEFT", wlLabel, "RIGHT", 6, 0)
+
+	local wlInfoBtn = CreateFrame("Frame", nil, spellcheckPanel)
+	wlInfoBtn:SetAllPoints(wlInfo)
+	wlInfoBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine("Whitelist", 0, 0.66, 0.92)
+		GameTooltip:AddLine("Words you add here will never be flagged as misspelled. Useful for character names, locations, and custom RP terms. Plurals and possessives of a whitelisted word (e.g. Lorath > Lorath's, Loraths) are accepted automatically.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	wlInfoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	sy2 = sy2 - 22
+
+	-- Forward declaration / shared state for the whitelist controls.
+	local RebuildWhitelist
+	local wlRows       = {}
+	local wlActiveWord = nil
+
+	-- Inline status line for validation feedback (positioned below the input).
+	local wlStatus = spellcheckPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	wlStatus:SetTextColor(0.9, 0.3, 0.3, 1)
+
+	local function WLReasonText(reason)
+		if reason == "badchars" then
+			return "Letters, apostrophes, and hyphens only."
+		elseif reason == "exists" then
+			return "Already in the whitelist."
+		elseif reason == "nodb" then
+			return "Settings are not ready yet."
+		else
+			return "Enter a word of 2 or more letters."
+		end
+	end
+
+	local function SetWLStatus(msg)
+		wlStatus:SetText(msg or "")
+	end
+
+	-- Add-word input. Custom scripts: a word is committed only on Enter or the
+	-- Add button — never on focus loss — so partial text isn't silently stored.
+	local wlInputBG = CreateFrame("Frame", nil, spellcheckPanel, "BackdropTemplate")
+	wlInputBG:SetPoint("TOPLEFT", 0, sy2)
+	wlInputBG:SetSize(180, 22)
+	wlInputBG:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground";
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border";
+		edgeSize = 8;
+		insets   = { left=3, right=3, top=3, bottom=3 };
+	})
+	wlInputBG:SetBackdropColor(0, 0, 0, 0.5)
+	wlInputBG:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+
+	local wlInput = CreateFrame("EditBox", nil, wlInputBG)
+	wlInput:SetPoint("TOPLEFT", 5, -3)
+	wlInput:SetPoint("BOTTOMRIGHT", -5, 3)
+	wlInput:SetFontObject(ChatFontNormal)
+	wlInput:SetMaxLetters(40)
+	wlInput:SetAutoFocus(false)
+	wlInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+	local function DoAddWord()
+		local ok, reason = Me.Spellcheck.AddWhitelistWord(wlInput:GetText())
+		if ok then
+			SetWLStatus("")
+			wlInput:SetText("")
+			RebuildWhitelist()
+		else
+			SetWLStatus(WLReasonText(reason))
+		end
+	end
+
+	wlInput:SetScript("OnEnterPressed", function(self)
+		DoAddWord()
+		self:ClearFocus()
+	end)
+
+	MakeButton(spellcheckPanel, "Add", 188, sy2, 60, DoAddWord)
+
+	sy2 = sy2 - 30
+
+	-- Bordered container for the word list — matches the framed style used by
+	-- the input box and color swatch elsewhere in the panel.
+	local wlListBG = CreateFrame("Frame", nil, spellcheckPanel, "BackdropTemplate")
+	wlListBG:SetPoint("TOPLEFT", 0, sy2)
+	wlListBG:SetPoint("BOTTOMRIGHT", -2, 26)
+	wlListBG:SetBackdrop({
+		bgFile   = "Interface\\ChatFrame\\ChatFrameBackground";
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border";
+		edgeSize = 8;
+		insets   = { left=3, right=3, top=3, bottom=3 };
+	})
+	wlListBG:SetBackdropColor(0, 0, 0, 0.5)
+	wlListBG:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+
+	-- Validation status sits below the list, pinned to the panel bottom; it is
+	-- empty unless an add/modify is rejected.
+	wlStatus:SetPoint("BOTTOMLEFT", 0, 6)
+
+	-- Scrollable list of whitelisted words (inside the bordered container).
+	local WL_LIST_W = 268   -- viewport width inside the border, excl. scrollbar
+
+	local wlScroll = CreateFrame("ScrollFrame", "EmoteScribeWLScroll", wlListBG, "UIPanelScrollFrameTemplate")
+	wlScroll:SetPoint("TOPLEFT", 6, -6)
+	wlScroll:SetPoint("BOTTOMRIGHT", -26, 6)
+
+	local wlContent = CreateFrame("Frame", nil, wlScroll)
+	wlContent:SetSize(WL_LIST_W, 1)
+	wlScroll:SetScrollChild(wlContent)
+
+	local wlEmpty = wlScroll:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	wlEmpty:SetPoint("TOPLEFT", 2, -2)
+	wlEmpty:SetText("No words in the whitelist yet.")
+
+	-- Per-row options dropdown (Modify / Delete).
+	local wlDropDown = CreateFrame("Frame", "EmoteScribeWLDropDown", UIParent, "UIDropDownMenuTemplate")
+
+	local function WL_DropDownInit(self, level)
+		local info = UIDropDownMenu_CreateInfo()
+		info.text         = "Modify"
+		info.notCheckable = true
+		info.func         = function()
+			StaticPopup_Show("EMOTESCRIBE_WL_MODIFY", wlActiveWord, nil, wlActiveWord)
+		end
+		UIDropDownMenu_AddButton(info, level)
+
+		info              = UIDropDownMenu_CreateInfo()
+		info.text         = "Delete"
+		info.notCheckable = true
+		info.func         = function()
+			if wlActiveWord then
+				Me.Spellcheck.RemoveWhitelistWord(wlActiveWord)
+				SetWLStatus("")
+				RebuildWhitelist()
+			end
+		end
+		UIDropDownMenu_AddButton(info, level)
+	end
+	UIDropDownMenu_Initialize(wlDropDown, WL_DropDownInit, "MENU")
+
+	-- Resolve a StaticPopup's edit box across client versions. The parentKey,
+	-- the "$parentEditBox" global, and a child scan are all tried, so this works
+	-- regardless of how the current StaticPopup template wires up its edit box.
+	local function WL_PopupEditBox(dialog)
+		if not dialog then return nil end
+		if dialog.editBox then return dialog.editBox end
+		if dialog.EditBox then return dialog.EditBox end
+		local name = dialog.GetName and dialog:GetName()
+		if name and _G[name .. "EditBox"] then return _G[name .. "EditBox"] end
+		if dialog.GetChildren then
+			for _, child in ipairs({ dialog:GetChildren() }) do
+				if child.GetObjectType and child:GetObjectType() == "EditBox" then
+					return child
+				end
+			end
+		end
+		return nil
+	end
+
+	-- Modify popup — edits an existing entry in place.
+	StaticPopupDialogs["EMOTESCRIBE_WL_MODIFY"] = {
+		text         = "Modify whitelist word:";
+		button1      = SAVE or "Save";
+		button2      = CANCEL or "Cancel";
+		hasEditBox   = true;
+		maxLetters   = 40;
+		timeout      = 0;
+		whileDead    = true;
+		hideOnEscape = true;
+		OnShow = function(self, data)
+			local eb = WL_PopupEditBox(self)
+			local word = data or wlActiveWord
+			if eb then
+				eb:SetText(word or "")
+				eb:HighlightText()
+				eb:SetFocus()
+			end
+		end;
+		OnAccept = function(self, data)
+			local eb = WL_PopupEditBox(self)
+			local newWord = eb and eb:GetText() or ""
+			local oldWord = data or wlActiveWord
+
+			-- Unchanged (after normalization) — keep the entry, do nothing.
+			local normNew = Me.Spellcheck.NormalizeWhitelistWord(newWord)
+			local normOld = oldWord and Me.Spellcheck.NormalizeWhitelistWord(oldWord)
+			if normNew and normOld and normNew == normOld then
+				SetWLStatus("")
+				return
+			end
+
+			local ok, reason = Me.Spellcheck.AddWhitelistWord(newWord)
+			-- "exists" means the new spelling is already present; either way the
+			-- old entry is replaced, completing the rename/merge.
+			if ok or reason == "exists" then
+				if oldWord then Me.Spellcheck.RemoveWhitelistWord(oldWord) end
+				SetWLStatus("")
+				RebuildWhitelist()
+			else
+				SetWLStatus(WLReasonText(reason))
+			end
+		end;
+		EditBoxOnEnterPressed = function(self)
+			local parent = self:GetParent()
+			if parent then
+				if StaticPopup_OnClick then
+					StaticPopup_OnClick(parent, 1)
+				elseif parent.button1 then
+					parent.button1:Click()
+				end
+			end
+		end;
+		EditBoxOnEscapePressed = function(self)
+			self:GetParent():Hide()
+		end;
+	}
+
+	local WL_ROW_H = 22
+
+	RebuildWhitelist = function()
+		local words = (Me.Spellcheck and Me.Spellcheck.GetWhitelistWords()) or {}
+
+		for i = 1, #words do
+			local row = wlRows[i]
+			if not row then
+				row = CreateFrame("Frame", nil, wlContent)
+				row:SetSize(WL_LIST_W, WL_ROW_H)
+
+				row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+				row.text:SetPoint("LEFT", 2, 0)
+				row.text:SetWidth(WL_LIST_W - 26)
+				row.text:SetJustifyH("LEFT")
+
+				local gear = CreateFrame("Button", nil, row)
+				gear:SetSize(16, 16)
+				gear:SetPoint("RIGHT", -2, 0)
+				gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+				gear:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+				gear:SetScript("OnClick", function(self)
+					wlActiveWord = row.word
+					ToggleDropDownMenu(1, nil, wlDropDown, self, 0, 0)
+				end)
+				row.gear = gear
+
+				-- Faint separator at the bottom of the row (suppressed on the
+				-- last visible row below).
+				row.div = row:CreateTexture(nil, "ARTWORK")
+				row.div:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+				row.div:SetPoint("BOTTOMLEFT", 2, 0)
+				row.div:SetPoint("BOTTOMRIGHT", -2, 0)
+				row.div:SetHeight(1)
+
+				wlRows[i] = row
+			end
+
+			row.word = words[i]
+			row.text:SetText(words[i])
+			row.div:Show()
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", 0, -(i - 1) * WL_ROW_H)
+			row:Show()
+		end
+
+		for i = #words + 1, #wlRows do
+			wlRows[i]:Hide()
+		end
+
+		-- No divider beneath the final entry.
+		if #words > 0 then wlRows[#words].div:Hide() end
+
+		wlContent:SetSize(WL_LIST_W, math.max(#words * WL_ROW_H, 1))
+
+		if #words == 0 then wlEmpty:Show() else wlEmpty:Hide() end
+	end
+
+	RebuildWhitelist()
 
 	-------------------------------------------------------------------------------
 	-- Tab switching
