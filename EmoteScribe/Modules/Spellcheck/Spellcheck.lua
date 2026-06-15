@@ -40,6 +40,7 @@ SC.oldLineLengths = {}
 SC.underlineColor   = "00a9ec"
 SC.ignoreCaps       = true
 SC.ignoreNumbers    = true
+SC.whitelist        = {}       -- lowercase-keyed hash; account-wide custom words
 
 SC.MAX_UNDERLINES   = 12
 SC.MAX_SUGGESTIONS  = 5
@@ -329,7 +330,7 @@ local SUFFIXES = {
 }
 
 local function InBase(w)
-    return #w >= 2 and SC.baseWords[w] == true
+    return #w >= 2 and (SC.baseWords[w] == true or SC.whitelist[w] == true)
 end
 
 -- Prefixes defined in Dic_enUS.lua: re-, in-, un-, de-, dis-, con-, pro-.
@@ -390,10 +391,96 @@ function SC.Contains(word)
     end
 
     local lword  = string.lower(word)
-    local result = SC.baseWords[lword] == true
+    local result = InBase(lword)
                    or TryVariants(lword)
     SC.wordCache[word] = result
     return result
+end
+
+-------------------------------------------------------------------------------
+-- Whitelist (custom words)
+-- Account-wide, user-maintained set of words that are never flagged. Stored in
+-- EmoteScribeSaved.global.spellcheck_whitelist as a lowercase-keyed hash and
+-- mirrored into SC.whitelist. Consulted through InBase, so affix variants
+-- (plurals, possessives) of a whitelisted word are accepted automatically.
+-- The suggestion engine is intentionally NOT whitelist-aware.
+-------------------------------------------------------------------------------
+local WHITELIST_WORD_PATTERN = "^[A-Za-z'%-]+$"
+
+-- Returns a normalized (trimmed, lowercased) word, or nil + reason on failure.
+function SC.NormalizeWhitelistWord(word)
+    if type(word) ~= "string" then return nil, "empty" end
+    word = word:gsub("^%s+", ""):gsub("%s+$", "")
+    if word == "" then return nil, "empty" end
+    if #word < 2 then return nil, "tooshort" end
+    if not word:match(WHITELIST_WORD_PATTERN) then return nil, "badchars" end
+    return word:lower()
+end
+
+local function ClearWordCache()
+    SC.wordCache      = {}
+    SC.wordCacheCount = 0
+end
+
+local function GetWhitelistStore()
+    local db = EmoteScribeSaved and EmoteScribeSaved.global
+    if not db then return nil end
+    if type(db.spellcheck_whitelist) ~= "table" then
+        db.spellcheck_whitelist = {}
+    end
+    return db.spellcheck_whitelist
+end
+
+-- Re-run spellcheck on any currently-visible hooked editbox so highlights
+-- update immediately after a whitelist change. SpellCheckChat self-gates on
+-- the enabled flag and on lockdown, so this is safe to call unconditionally.
+function SC.RefreshOpenEditboxes()
+    for editbox in pairs(SC.hookedEditboxes) do
+        if editbox.IsVisible and editbox:IsVisible() then
+            SC.SpellCheckChat(editbox)
+        end
+    end
+end
+
+function SC.AddWhitelistWord(word)
+    local norm, reason = SC.NormalizeWhitelistWord(word)
+    if not norm then return false, reason end
+
+    local store = GetWhitelistStore()
+    if not store then return false, "nodb" end
+    if store[norm] then return false, "exists" end
+
+    store[norm]  = true
+    SC.whitelist = store
+    ClearWordCache()
+    SC.RefreshOpenEditboxes()
+    return true
+end
+
+function SC.RemoveWhitelistWord(word)
+    local norm = SC.NormalizeWhitelistWord(word)
+    if not norm then return false, "invalid" end
+
+    local store = GetWhitelistStore()
+    if store then store[norm] = nil end
+    SC.whitelist = store or SC.whitelist
+    SC.whitelist[norm] = nil
+    ClearWordCache()
+    SC.RefreshOpenEditboxes()
+    return true
+end
+
+function SC.GetWhitelistWords()
+    -- Re-sync the in-memory mirror from the persisted store before reading, so
+    -- the list is correct even when queried before ApplySettings has run — e.g.
+    -- the options UI builds its initial list during load, ahead of ApplySettings.
+    local store = GetWhitelistStore()
+    if store then SC.whitelist = store end
+
+    local list = {}
+    for w in pairs(SC.whitelist) do list[#list + 1] = w end
+    table.sort(list)
+    return list
 end
 
 -------------------------------------------------------------------------------
@@ -1008,6 +1095,7 @@ function SC.ApplySettings()
     HighlightPrefix()
     SC.ignoreCaps    = db and db.spellcheck_ignore_caps    ~= false
     SC.ignoreNumbers = db and db.spellcheck_ignore_numbers ~= false
+    SC.whitelist     = GetWhitelistStore() or {}
 
     SC.wordCache      = {}
     SC.wordCacheCount = 0
