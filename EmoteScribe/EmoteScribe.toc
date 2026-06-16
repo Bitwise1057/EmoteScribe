@@ -1,4 +1,3 @@
-#------------------------------------------------------------------------------
 ## Interface: 120007
 ## Title: EmoteScribe
 ## Version: 1.1.8
@@ -6,7 +5,7 @@
 ## Author: VfX / Bitwise1057
 ## SavedVariables: EmoteScribeSaved
 ## IconTexture: Interface\AddOns\EmoteScribe\Resources\SmallLogo32
-#------------------------------------------------------------------------------
+
 
 ## Category-enUS: Roleplay
 
