@@ -45,6 +45,31 @@ local function SafeCall( api, ... )
 	if result then return a end
 end
 
+-- Cancels every queued BN_WHISPER chunk bound for 'target' and frees channel 1.
+-- Used when the Battle.net account behind an editbox tell target can't be
+-- resolved. Deliberately leaves out_chat_buffer alone: the chunk being
+-- dispatched is removed by RunSendQueue when this returns "PASSED", and only
+-- one BN chunk is ever in flight at a time.
+function Me.CancelBnetTarget( target )
+	local i = 1
+	while Me.chat_queue[i] do
+		local q = Me.chat_queue[i]
+		if q.type == "BN_WHISPER" and q.target == target then
+			table.remove( Me.chat_queue, i )
+		else
+			i = i + 1
+		end
+	end
+
+	print( "|cff00a9ec<EmoteScribe>|r Could not resolve the Battle.net account"
+	       .. " for " .. tostring( target )
+	       .. ". Remaining message chunks cancelled." )
+
+	if Me.channels_busy[1] then
+		Me.ChatConfirmed( 1, true )
+	end
+end
+
 local function TryDispatchMessage( msg )
 	local size = (#msg.msg + MSG_OVERHEAD)
 	if size > Me.bandwidth and Me.bandwidth < (MaxBandwidth() - 50) then
@@ -55,8 +80,23 @@ local function TryDispatchMessage( msg )
 	local msgtype  = msg.type
 	Me.bandwidth   = Me.bandwidth - size
 
-	if msgtype == "BNET" then
-		SafeCall( Me.hooks.BNSendWhisper, msg.target, msg.msg )
+	if msgtype == "BN_WHISPER" then
+		-- msg.target is the editbox tell target (a name or BattleTag), so it
+		-- must be resolved to an account ID. Both APIs are nil-guarded: if
+		-- either is unavailable the chunks are cancelled with a notice rather
+		-- than left to stall channel 1 until the death timer fires.
+		local bnet_id
+		if BNet_GetBNetIDAccount then
+			local ok, id = pcall( BNet_GetBNetIDAccount, msg.target )
+			if ok then bnet_id = id end
+		end
+
+		if not bnet_id or not (C_BattleNet and C_BattleNet.SendWhisper) then
+			Me.CancelBnetTarget( msg.target )
+			return "PASSED"
+		end
+
+		SafeCall( C_BattleNet.SendWhisper, bnet_id, msg.msg )
 	elseif msgtype == "CLUB" then
 		if not hardware then return "PROMPT" end
 		Me.addon_action_blocked = false

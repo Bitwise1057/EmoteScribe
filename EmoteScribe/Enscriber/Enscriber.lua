@@ -30,9 +30,9 @@ Me.load    = true
 
 -------------------------------------------------------------------------------
 -- Queue internals
--- Queue 1: SAY, EMOTE, YELL, BNET  (confirmed via chat echo)
--- Queue 2: GUILD, OFFICER, CLUB    (confirmed via club events)
--- Queue 3: CLUBEDIT, CLUBDELETE    (confirmed via CLUB_MESSAGE_UPDATED)
+-- Queue 1: SAY, EMOTE, YELL, BN_WHISPER  (confirmed via chat echo)
+-- Queue 2: GUILD, OFFICER, CLUB          (confirmed via club events)
+-- Queue 3: CLUBEDIT, CLUBDELETE          (confirmed via CLUB_MESSAGE_UPDATED)
 Me.chat_queue    = {}
 Me.channels_busy = {}
 Me.message_id    = 1
@@ -42,7 +42,7 @@ local QUEUED_TYPES = {
    SAY        = 1;
    EMOTE      = 1;
    YELL       = 1;
-   BNET       = 1;
+   BN_WHISPER = 1;
    GUILD      = 2;
    OFFICER    = 2;
    CLUB       = 2;
@@ -206,7 +206,7 @@ function Me.OnGameEvent( frame, event, ... )
    elseif event == "CHAT_MSG_COMMUNITIES_CHANNEL" then
       Me.OnChatMsgCommunitiesChannel( event, ... )
    elseif event == "CHAT_MSG_BN_WHISPER_INFORM" then
-      Me.TryConfirm( "BNET", Me.PLAYER_GUID )
+      Me.TryConfirm( "BN_WHISPER", Me.PLAYER_GUID )
    elseif event == "CLUB_ERROR" then
       Me.OnClubError( event, ... )
    elseif event == "CLUB_MESSAGE_UPDATED" then
@@ -314,14 +314,12 @@ function Me.SplitLines( text )
 end
 
 -------------------------------------------------------------------------------
--- BNet and Club hook functions (these globals are still replaced because they
--- are not subject to the same taint restrictions as SendChatMessage).
-function Me.BNSendWhisperHook( presence_id, message_text )
-   Me.inside_hook = "BNET"
-   Me.AddChat( message_text, "BNET", nil, presence_id )
-   Me.inside_hook = nil
-end
-
+-- Club hook function (this global is still replaced because it is not subject
+-- to the same taint restrictions as SendChatMessage).
+-- BN whispers are NOT hooked. They are intercepted at the editbox pre-send
+-- callback as chat type "BN_WHISPER" and dispatched from the throttler via
+-- C_BattleNet.SendWhisper. Replacing the BNSendWhisper global would re-enter
+-- AddChat for chunk[1] after Blizzard's SendText fires.
 function Me.ClubSendMessageHook( club_id, stream_id, message )
    Me.inside_hook = "CLUB"
    Me.AddChat( message, "CLUB", club_id, stream_id )
@@ -877,11 +875,19 @@ function Me.OnChatMsgBnOffline( event, ... )
    local c = Me.channels_busy[1]
    if not c then return end
    local senderID = select( 13, ... )
-   if c.type == "BNET" and c.target == senderID then
+   -- msg.target holds the editbox tell target (a name string), so it must be
+   -- resolved to an account ID before comparing against bnSenderID.
+   local function TargetMatches( entry )
+      if entry.type ~= "BN_WHISPER" then return false end
+      if not BNet_GetBNetIDAccount then return false end
+      local ok, id = pcall( BNet_GetBNetIDAccount, entry.target )
+      return ok and id and id == senderID
+   end
+   if TargetMatches( c ) then
       local i = 1
       while Me.chat_queue[i] do
-         local c = Me.chat_queue[i]
-         if c.type == "BNET" and c.target == senderID then
+         local q = Me.chat_queue[i]
+         if TargetMatches( q ) then
             table.remove( Me.chat_queue, i )
          else
             i = i + 1
@@ -988,8 +994,10 @@ end
 -- SendChatMessage is NOT replaced here. It is intercepted via the editbox
 -- ChatFrame.OnEditBoxPreSendText callback, which runs inside the secure
 -- hardware-event chain so it never taints C_ChatInfo.SendChatMessage.
--- BNSendWhisper and C_Club.SendMessage are still replaced because they don't
--- share the same taint restrictions.
+-- BNSendWhisper is NOT replaced either. BN whispers arrive through the same
+-- editbox callback as chat type "BN_WHISPER".
+-- C_Club.SendMessage is still replaced because it doesn't share the same
+-- taint restrictions.
 Me.hooks = Me.hooks or {}
 
 -- Returns true when a chat messaging lockdown is active (boss, M+, PvP).
@@ -1062,13 +1070,6 @@ if not Me.editbox_hooked then
          end
       end
    )
-end
-
-if not Me.hooks.BNSendWhisper then
-   Me.hooks.BNSendWhisper = BNSendWhisper
-   function BNSendWhisper( ... )
-      return Me.BNSendWhisperHook( ... )
-   end
 end
 
 if not Me.hooks.ChatFrame_OpenChat then
