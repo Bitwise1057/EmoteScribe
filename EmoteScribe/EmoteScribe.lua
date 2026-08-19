@@ -84,7 +84,7 @@ function Me:OnEnable()
 	Enscriber.Listen( "ENCOUNTER_LOCKDOWN_END",   Me.Enscriber_ENCOUNTER_LOCKDOWN_END   )
 
 	-- BNet and Club messages support up to 4000 chars; we cap chunks at 400.
-	Enscriber.Internal.default_chunk_sizes.BNET = 400
+	Enscriber.Internal.default_chunk_sizes.BN_WHISPER = 400
 	Enscriber.Internal.default_chunk_sizes.CLUB = 400
 
 	-- Track editbox defaults per-frame. During chat lockdown the limits are
