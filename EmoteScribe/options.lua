@@ -9,6 +9,7 @@ local DEFAULTS = {
 	premark         = "»";
 	postmark        = "»";
 	hidefailed      = true;
+	hidemisspelledwarning = false;
 	showsending     = true;
 	showlockdown    = true;
 	emoteprotection = true;
@@ -107,7 +108,7 @@ local function MakeCheckbox( parent, label, tooltip, x, y, getVal, setVal )
 		setVal( self:GetChecked() and true or false )
 	end)
 
-	return cb
+	return cb, lbl
 end
 
 local function MakeInput( parent, x, y, width, maxlen, getVal, setVal )
@@ -471,6 +472,30 @@ function Me.Options_Build()
 		0, y,
 		function() return DB_Get("hidefailed") end,
 		function(v) DB_Set("hidefailed", v); Me.Options_Apply() end)
+
+	y = y - 28
+
+	local hideCompatCB, hideCompatLbl = MakeCheckbox(generalPanel, "Hide Compatibility Warnings",
+		"Suppress the compatibility warning shown when Misspelled is detected.",
+		0, y,
+		function() return DB_Get("hidemisspelledwarning") end,
+		function(v) DB_Set("hidemisspelledwarning", v) end)
+
+	-- Alert triangle: other splitter addon conflicts are never suppressed.
+	local hcAlert = generalPanel:CreateTexture(nil, "OVERLAY")
+	hcAlert:SetTexture("Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
+	hcAlert:SetSize(16, 16)
+	hcAlert:SetPoint("LEFT", hideCompatLbl, "RIGHT", 6, 0)
+
+	local hcAlertBtn = CreateFrame("Frame", nil, generalPanel)
+	hcAlertBtn:SetAllPoints(hcAlert)
+	hcAlertBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine("Compatibility Warning", 1, 0.82, 0)
+		GameTooltip:AddLine("Other chat-splitting addon compatibility warnings (EmoteSplitter, UnlimitedChatMessage) will still be shown regardless of this setting. Those conflicts can break chat splitting entirely and are not suppressed.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	hcAlertBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 	y = y - 40
 
