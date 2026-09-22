@@ -88,6 +88,7 @@ StaticPopupDialogs["EMOTESCRIBE_MISSPELLED_CONFLICT"] = {
 
 function Me.MisspelledCompatibility()
 	if Me.misspelled_conflict_ignored then return end
+	if EmoteScribeSaved.global.hidemisspelledwarning then return end
 	if not C_AddOns.IsAddOnLoaded( "Misspelled" ) then return end
 	StaticPopup_Show( "EMOTESCRIBE_MISSPELLED_CONFLICT" )
 end

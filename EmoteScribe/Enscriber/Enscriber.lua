@@ -6,7 +6,7 @@
 -- that verifies delivery and retries on server throttle errors.
 -------------------------------------------------------------------------------
 
-local VERSION = 1
+local VERSION = 2
 
 if IsLoggedIn() then
    error( "Enscriber can't be loaded on demand!" )
